@@ -7,19 +7,19 @@ require "client/ui/ISVehicleClaimListPanel"
 
 local VehicleClaimPlayerMenu = {}
 
---- Add "My Vehicles" option to player self context menu
+--- Add "My Vehicles" option to any right-click context menu
 --- @param playerNum number
 --- @param context ISContextMenu
---- @param playerObj IsoPlayer
-function VehicleClaimPlayerMenu.onFillPlayerMenu(playerNum, context, playerObj)
-    if not playerObj then return end
+--- @param worldObjects table
+--- @param test boolean
+function VehicleClaimPlayerMenu.onFillWorldMenu(playerNum, context, worldObjects, test)
+    if test then return end
     
-    -- Only show for the local player (not on other players)
     local player = getSpecificPlayer(playerNum)
-    if player ~= playerObj then return end
+    if not player then return end
     
-    -- Add menu option
-    local option = context:addOption("Meus Veiculos", playerObj, VehicleClaimPlayerMenu.onOpenVehicleList)
+    -- Add menu option (always visible on any right-click)
+    local option = context:addOption("Meus Veiculos", player, VehicleClaimPlayerMenu.onOpenVehicleList)
     
     -- Add tooltip
     local tooltip = ISWorldObjectContextMenu.addToolTip()
@@ -50,6 +50,6 @@ end
 -- Event Registration
 -----------------------------------------------------------
 
-Events.OnFillWorldObjectContextMenu.Add(VehicleClaimPlayerMenu.onFillPlayerMenu)
+Events.OnFillWorldObjectContextMenu.Add(VehicleClaimPlayerMenu.onFillWorldMenu)
 
 return VehicleClaimPlayerMenu

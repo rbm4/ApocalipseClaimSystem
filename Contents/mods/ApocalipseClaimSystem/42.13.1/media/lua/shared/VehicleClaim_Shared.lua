@@ -19,8 +19,8 @@ VehicleClaim.CLAIM_TIME_KEY = "claimTimestamp"
 VehicleClaim.LAST_SEEN_KEY = "lastSeenTimestamp"
 
 -- Proximity settings
-VehicleClaim.CLAIM_DISTANCE = 5.0  -- Max distance to claim/interact
-VehicleClaim.CLAIM_TIME_TICKS = 200  -- Timed action duration (~2 seconds)
+VehicleClaim.CLAIM_DISTANCE = 2.0  -- Max distance to claim/interact
+VehicleClaim.CLAIM_TIME_TICKS = 400  -- Timed action duration (~2 seconds)
 
 -- Command types (client -> server)
 VehicleClaim.CMD_CLAIM = "claimVehicle"
@@ -47,7 +47,7 @@ VehicleClaim.ERR_PLAYER_NOT_FOUND = "playerNotFound"
 VehicleClaim.ERR_CLAIM_LIMIT_REACHED = "claimLimitReached"
 
 -- Sandbox settings
-VehicleClaim.DEFAULT_MAX_CLAIMS = 5
+VehicleClaim.DEFAULT_MAX_CLAIMS = 3
 
 -----------------------------------------------------------
 -- Utility Functions

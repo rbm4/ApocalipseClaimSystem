@@ -309,9 +309,16 @@ end
 
 function ISVehicleClaimPanel:onReleaseConfirm(button)
     if button.internal == "YES" then
-        -- Queue release action
-        local action = ISReleaseVehicleClaimAction:new(self.player, self.vehicle, VehicleClaim.CLAIM_TIME_TICKS / 2)
-        ISTimedActionQueue.add(action)
+        -- Send release command directly (no timed action needed)
+        local vehicleID = self.vehicle:getId()
+        local steamID = VehicleClaim.getPlayerSteamID(self.player)
+        
+        local args = {
+            vehicleID = vehicleID,
+            steamID = steamID
+        }
+        
+        sendClientCommand(self.player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_RELEASE, args)
         
         -- Close panel
         self:onClose()

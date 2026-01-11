@@ -1,0 +1,3 @@
+Sandbox_VehicleClaimSystem = "Vehicle Claim System",
+Sandbox_VehicleClaimSystem_MaxClaimsPerPlayer = "Max Vehicles Per Player",
+Sandbox_VehicleClaimSystem_MaxClaimsPerPlayer_tooltip = "Maximum number of vehicles a single player can claim. Set lower to prevent hoarding, higher to allow more personal vehicles.",

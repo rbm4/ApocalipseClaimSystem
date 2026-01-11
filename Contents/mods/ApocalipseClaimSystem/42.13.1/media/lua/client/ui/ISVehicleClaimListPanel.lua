@@ -27,7 +27,7 @@ function ISVehicleClaimListPanel:new(x, y, width, height, player)
     o.backgroundColor = {r = 0.1, g = 0.1, b = 0.1, a = 0.9}
     o.borderColor = {r = 0.4, g = 0.4, b = 0.4, a = 1}
     
-    o.title = "Meus Veiculos"
+    o.title = getText("UI_VehicleClaim_MyVehicles")
     o.moveWithMouse = true
     o.anchorLeft = true
     o.anchorRight = false
@@ -60,7 +60,7 @@ function ISVehicleClaimListPanel:initialise()
     
     -- Info label
     local maxClaims = VehicleClaim.getMaxClaimsPerPlayer()
-    local infoText = string.format("Veiculos: %d / %d", 0, maxClaims)
+    local infoText = getText("UI_VehicleClaim_VehicleCount", 0, maxClaims)
     self.infoLabel = ISLabel:new(padding, y, labelHeight, infoText, 0.8, 0.8, 0.8, 1, UIFont.Small, true)
     self.infoLabel:initialise()
     self:addChild(self.infoLabel)
@@ -83,24 +83,29 @@ function ISVehicleClaimListPanel:initialise()
     local btnWidth = (self.width - (padding * 3)) / 2
     
     -- Manage button
-    self.manageButton = ISButton:new(padding, y, btnWidth, btnHeight, "Gerenciar", self, ISVehicleClaimListPanel.onManageVehicle)
+    self.manageButton = ISButton:new(padding, y, btnWidth, btnHeight, getText("UI_VehicleClaim_Manage"), self, ISVehicleClaimListPanel.onManageVehicle)
     self.manageButton:initialise()
     self.manageButton:instantiate()
     self.manageButton.borderColor = {r = 0.3, g = 0.5, b = 0.3, a = 1}
     self:addChild(self.manageButton)
     
     -- Refresh button
-    self.refreshButton = ISButton:new(padding * 2 + btnWidth, y, btnWidth, btnHeight, "Atualizar", self, ISVehicleClaimListPanel.onRefresh)
+    self.refreshButton = ISButton:new(padding * 2 + btnWidth, y, btnWidth, btnHeight, getText("UI_VehicleClaim_Refresh"), self, ISVehicleClaimListPanel.onRefresh)
     self.refreshButton:initialise()
     self.refreshButton:instantiate()
     self:addChild(self.refreshButton)
     y = y + btnHeight + padding
     
     -- Close button
-    self.closeButton = ISButton:new(padding, y, self.width - (padding * 2), btnHeight, "Fechar", self, ISVehicleClaimListPanel.onClose)
+    self.closeButton = ISButton:new(padding, y, self.width - (padding * 2), btnHeight, getText("UI_VehicleClaim_Close"), self, ISVehicleClaimListPanel.onClose)
     self.closeButton:initialise()
     self.closeButton:instantiate()
     self:addChild(self.closeButton)
+    
+    -- Register for refresh events
+    if VehicleClaimClientCommands then
+        VehicleClaimClientCommands.registerPanel(self)
+    end
     
     -- Load initial data
     self:refreshData()
@@ -140,11 +145,11 @@ function ISVehicleClaimListPanel:updateVehicleList()
     -- Update info label
     local maxClaims = VehicleClaim.getMaxClaimsPerPlayer()
     local currentClaims = #self.claimedVehicles
-    local infoText = string.format("Veiculos: %d / %d", currentClaims, maxClaims)
+    local infoText = getText("UI_VehicleClaim_VehicleCount", currentClaims, maxClaims)
     self.infoLabel:setName(infoText)
     
     if #self.claimedVehicles == 0 then
-        self.vehicleList:addItem("(Nenhum veiculo reivindicado)", {vehicle = nil})
+        self.vehicleList:addItem(getText("UI_VehicleClaim_NoVehiclesClaimed"), {vehicle = nil})
         return
     end
     
@@ -220,7 +225,7 @@ function ISVehicleClaimListPanel:onManageVehicle()
     
     -- Check if vehicle still exists and is valid
     if not vehicle:getSquare() then
-        self.player:Say("Veiculo nao encontrado")
+        self.player:Say(getText("UI_VehicleClaim_VehicleNotFound"))
         self:refreshData()
         return
     end
@@ -244,6 +249,11 @@ function ISVehicleClaimListPanel:onRefresh()
 end
 
 function ISVehicleClaimListPanel:onClose()
+    -- Unregister from refresh events
+    if VehicleClaimClientCommands then
+        VehicleClaimClientCommands.unregisterPanel(self)
+    end
+    
     self:setVisible(false)
     self:removeFromUIManager()
 end
@@ -262,7 +272,7 @@ function ISVehicleClaimListPanel:update()
     
     self.lastUpdate = self.lastUpdate + 1
     
-    if self.lastUpdate >= 300 then -- Every ~5 seconds
+    if self.lastUpdate >= 1500 then -- Every ~5 seconds
         self.lastUpdate = 0
         self:refreshData()
     end

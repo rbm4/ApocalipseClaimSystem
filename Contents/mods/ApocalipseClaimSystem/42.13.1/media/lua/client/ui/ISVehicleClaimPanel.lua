@@ -29,7 +29,7 @@ function ISVehicleClaimPanel:new(x, y, width, height, player, vehicle)
     o.backgroundColor = {r = 0.1, g = 0.1, b = 0.1, a = 0.9}
     o.borderColor = {r = 0.4, g = 0.4, b = 0.4, a = 1}
     
-    o.title = "Manuseio do meu veiculo"
+    o.title = getText("UI_VehicleClaim_ManagementTitle")
     o.moveWithMouse = true
     o.anchorLeft = true
     o.anchorRight = false
@@ -66,25 +66,25 @@ function ISVehicleClaimPanel:initialise()
     
     -- Vehicle name
     local vehicleName = VehicleClaim.getVehicleName(self.vehicle)
-    self.vehicleLabel = ISLabel:new(padding, y, labelHeight, "Vehicle: " .. vehicleName, 0.9, 0.9, 0.9, 1, UIFont.Small, true)
+    self.vehicleLabel = ISLabel:new(padding, y, labelHeight, getText("UI_VehicleClaim_Vehicle", vehicleName), 0.9, 0.9, 0.9, 1, UIFont.Small, true)
     self.vehicleLabel:initialise()
     self:addChild(self.vehicleLabel)
     y = y + labelHeight + 5
     
     -- Owner info
-    self.ownerLabel = ISLabel:new(padding, y, labelHeight, "Owner: Loading...", 0.7, 0.9, 0.7, 1, UIFont.Small, true)
+    self.ownerLabel = ISLabel:new(padding, y, labelHeight, getText("UI_VehicleClaim_Owner", "..."), 0.7, 0.9, 0.7, 1, UIFont.Small, true)
     self.ownerLabel:initialise()
     self:addChild(self.ownerLabel)
     y = y + labelHeight + 5
     
     -- Claim time
-    self.claimTimeLabel = ISLabel:new(padding, y, labelHeight, "Claimed: -", 0.7, 0.7, 0.7, 1, UIFont.Small, true)
+    self.claimTimeLabel = ISLabel:new(padding, y, labelHeight, getText("UI_VehicleClaim_Claimed", "-"), 0.7, 0.7, 0.7, 1, UIFont.Small, true)
     self.claimTimeLabel:initialise()
     self:addChild(self.claimTimeLabel)
     y = y + labelHeight + 5
     
     -- Last seen
-    self.lastSeenLabel = ISLabel:new(padding, y, labelHeight, "Last seen: -", 0.7, 0.7, 0.7, 1, UIFont.Small, true)
+    self.lastSeenLabel = ISLabel:new(padding, y, labelHeight, getText("UI_VehicleClaim_LastSeen", "-"), 0.7, 0.7, 0.7, 1, UIFont.Small, true)
     self.lastSeenLabel:initialise()
     self:addChild(self.lastSeenLabel)
     y = y + labelHeight + padding
@@ -93,7 +93,7 @@ function ISVehicleClaimPanel:initialise()
     y = y + 5
     
     -- Allowed players section
-    self.allowedLabel = ISLabel:new(padding, y, labelHeight, "Allowed Players:", 1, 1, 1, 1, UIFont.Small, true)
+    self.allowedLabel = ISLabel:new(padding, y, labelHeight, getText("UI_VehicleClaim_AllowedPlayers"), 1, 1, 1, 1, UIFont.Small, true)
     self.allowedLabel:initialise()
     self:addChild(self.allowedLabel)
     y = y + labelHeight + 5
@@ -112,7 +112,7 @@ function ISVehicleClaimPanel:initialise()
     y = y + listHeight + padding
     
     -- Add player section
-    self.addPlayerLabel = ISLabel:new(padding, y, labelHeight, "Add Player:", 0.8, 0.8, 0.8, 1, UIFont.Small, true)
+    self.addPlayerLabel = ISLabel:new(padding, y, labelHeight, getText("UI_VehicleClaim_AddPlayer"), 0.8, 0.8, 0.8, 1, UIFont.Small, true)
     self.addPlayerLabel:initialise()
     self:addChild(self.addPlayerLabel)
     y = y + labelHeight + 5
@@ -122,11 +122,11 @@ function ISVehicleClaimPanel:initialise()
     self.playerNameEntry = ISTextEntryBox:new("", padding, y, entryWidth, btnHeight)
     self.playerNameEntry:initialise()
     self.playerNameEntry:instantiate()
-    self.playerNameEntry:setTooltip("Enter player username")
+    self.playerNameEntry:setTooltip(getText("UI_VehicleClaim_EnterPlayerUsername"))
     self:addChild(self.playerNameEntry)
     
     -- Add button
-    self.addButton = ISButton:new(padding + entryWidth + 5, y, 70, btnHeight, "Add", self, ISVehicleClaimPanel.onAddPlayer)
+    self.addButton = ISButton:new(padding + entryWidth + 5, y, 70, btnHeight, getText("UI_VehicleClaim_Add"), self, ISVehicleClaimPanel.onAddPlayer)
     self.addButton:initialise()
     self.addButton:instantiate()
     self.addButton.borderColor = {r = 0.3, g = 0.5, b = 0.3, a = 1}
@@ -134,7 +134,7 @@ function ISVehicleClaimPanel:initialise()
     y = y + btnHeight + padding
     
     -- Remove selected player button
-    self.removeButton = ISButton:new(padding, y, 120, btnHeight, "Remove Selected", self, ISVehicleClaimPanel.onRemovePlayer)
+    self.removeButton = ISButton:new(padding, y, 120, btnHeight, getText("UI_VehicleClaim_RemoveSelected"), self, ISVehicleClaimPanel.onRemovePlayer)
     self.removeButton:initialise()
     self.removeButton:instantiate()
     self.removeButton.borderColor = {r = 0.5, g = 0.3, b = 0.3, a = 1}
@@ -145,7 +145,7 @@ function ISVehicleClaimPanel:initialise()
     local btnWidth = (self.width - (padding * 3)) / 2
     
     -- Release claim button
-    self.releaseButton = ISButton:new(padding, y, btnWidth, btnHeight, "Release Claim", self, ISVehicleClaimPanel.onReleaseClaim)
+    self.releaseButton = ISButton:new(padding, y, btnWidth, btnHeight, getText("UI_VehicleClaim_ReleaseClaim"), self, ISVehicleClaimPanel.onReleaseClaim)
     self.releaseButton:initialise()
     self.releaseButton:instantiate()
     self.releaseButton.borderColor = {r = 0.7, g = 0.3, b = 0.3, a = 1}
@@ -153,7 +153,7 @@ function ISVehicleClaimPanel:initialise()
     self:addChild(self.releaseButton)
     
     -- Close button
-    self.closeButton = ISButton:new(padding * 2 + btnWidth, y, btnWidth, btnHeight, "Close", self, ISVehicleClaimPanel.onClose)
+    self.closeButton = ISButton:new(padding * 2 + btnWidth, y, btnWidth, btnHeight, getText("UI_VehicleClaim_Close"), self, ISVehicleClaimPanel.onClose)
     self.closeButton:initialise()
     self.closeButton:instantiate()
     self:addChild(self.closeButton)
@@ -182,7 +182,7 @@ function ISVehicleClaimPanel:refreshData()
         self.claimTime = claimData[VehicleClaim.CLAIM_TIME_KEY] or 0
         self.lastSeen = claimData[VehicleClaim.LAST_SEEN_KEY] or 0
     else
-        self.ownerName = "Unclaimed"
+        self.ownerName = getText("UI_VehicleClaim_Unclaimed")
         self.ownerSteamID = ""
         self.allowedPlayers = {}
         self.claimTime = 0
@@ -190,9 +190,9 @@ function ISVehicleClaimPanel:refreshData()
     end
     
     -- Update labels
-    self.ownerLabel:setName("Owner: " .. self.ownerName)
-    self.claimTimeLabel:setName("Claimed: " .. VehicleClaim.formatTimestamp(self.claimTime))
-    self.lastSeenLabel:setName("Last seen: " .. VehicleClaim.formatTimestamp(self.lastSeen))
+    self.ownerLabel:setName(getText("UI_VehicleClaim_Owner", self.ownerName))
+    self.claimTimeLabel:setName(getText("UI_VehicleClaim_Claimed", VehicleClaim.formatTimestamp(self.claimTime)))
+    self.lastSeenLabel:setName(getText("UI_VehicleClaim_LastSeen", VehicleClaim.formatTimestamp(self.lastSeen)))
     
     -- Update player list
     self.playerList:clear()
@@ -201,7 +201,7 @@ function ISVehicleClaimPanel:refreshData()
     end
     
     if self.playerList:size() == 0 then
-        self.playerList:addItem("(No players added)", {steamID = nil, name = nil})
+        self.playerList:addItem(getText("UI_VehicleClaim_NoPlayersAdded"), {steamID = nil, name = nil})
     end
 end
 
@@ -298,7 +298,7 @@ function ISVehicleClaimPanel:onReleaseClaim()
         self.y + 100, 
         280, 
         100, 
-        "Release ownership of this vehicle?", 
+        getText("UI_VehicleClaim_ReleaseConfirm"), 
         true, 
         self, 
         ISVehicleClaimPanel.onReleaseConfirm

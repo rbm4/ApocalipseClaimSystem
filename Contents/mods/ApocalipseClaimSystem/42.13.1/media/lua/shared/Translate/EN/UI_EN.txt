@@ -1,0 +1,57 @@
+UI_EN = {
+    -- Vehicle List Panel
+    UI_VehicleClaim_MyVehicles = "My Vehicles",
+    UI_VehicleClaim_VehicleCount = "Vehicles: %1 / %2",
+    UI_VehicleClaim_NoVehiclesClaimed = "(No vehicles claimed)",
+    UI_VehicleClaim_Manage = "Manage",
+    UI_VehicleClaim_Refresh = "Refresh",
+    UI_VehicleClaim_Close = "Close",
+    UI_VehicleClaim_VehicleNotFound = "Vehicle not found",
+    UI_VehicleClaim_ViewManageVehicles = "View and manage all vehicles you have claimed",
+    
+    -- Vehicle Management Panel
+    UI_VehicleClaim_ManagementTitle = "Vehicle Claim Management",
+    UI_VehicleClaim_Vehicle = "Vehicle: %1",
+    UI_VehicleClaim_Owner = "Owner: %1",
+    UI_VehicleClaim_Claimed = "Claimed: %1",
+    UI_VehicleClaim_LastSeen = "Last seen: %1",
+    UI_VehicleClaim_AllowedPlayers = "Allowed Players:",
+    UI_VehicleClaim_AddPlayer = "Add Player:",
+    UI_VehicleClaim_Add = "Add",
+    UI_VehicleClaim_RemoveSelected = "Remove Selected",
+    UI_VehicleClaim_ReleaseClaim = "Release Claim",
+    UI_VehicleClaim_ReleaseConfirm = "Release ownership of this vehicle?",
+    UI_VehicleClaim_NoPlayersAdded = "(No players added)",
+    UI_VehicleClaim_EnterPlayerUsername = "Enter player username",
+    UI_VehicleClaim_Unclaimed = "Unclaimed",
+    
+    -- Context Menu
+    UI_VehicleClaim_ContextTitle = "Vehicle Claim",
+    UI_VehicleClaim_Claim = "Claim %1",
+    UI_VehicleClaim_ClaimVehicle = "Claim Vehicle",
+    UI_VehicleClaim_ClaimDescription = "Register this vehicle as your property. Other players will not be able to use it without permission.",
+    UI_VehicleClaim_OwnerLabel = "Owner: %1",
+    UI_VehicleClaim_ManageAccess = "Manage Access",
+    UI_VehicleClaim_ReleaseViaPanel = "(Release via Manage Access)",
+    UI_VehicleClaim_YouHaveAccess = "You have access",
+    UI_VehicleClaim_AccessDenied = "Access Denied",
+    UI_VehicleClaim_AccessDeniedDescription = "This vehicle belongs to %1. You cannot use it without their permission.",
+    UI_VehicleClaim_ReleaseClaimTitle = "Release Claim",
+    UI_VehicleClaim_ReleaseDescription = "Remove your ownership of this vehicle. Anyone will be able to claim or use it.",
+    
+    -- Messages
+    UI_VehicleClaim_ClaimSuccess = "Successfully claimed %1",
+    UI_VehicleClaim_ClaimFailed = "Claim failed: %1",
+    UI_VehicleClaim_ReleasedClaim = "Released claim on %1",
+    UI_VehicleClaim_PlayerAdded = "%1 added to allowed players",
+    UI_VehicleClaim_PlayerRemoved = "%1 removed from allowed players",
+    UI_VehicleClaim_VehicleBelongsTo = "This vehicle belongs to %1",
+    
+    -- Error Messages
+    UI_VehicleClaim_AlreadyClaimed = "Vehicle is already claimed",
+    UI_VehicleClaim_TooFar = "Too far from vehicle",
+    UI_VehicleClaim_NotOwner = "You are not the owner",
+    UI_VehicleClaim_PlayerNotFound = "Player not found",
+    UI_VehicleClaim_ClaimLimitReached = "Claim limit reached (%1/%2 vehicles)",
+    UI_VehicleClaim_UnknownError = "Unknown error",
+}

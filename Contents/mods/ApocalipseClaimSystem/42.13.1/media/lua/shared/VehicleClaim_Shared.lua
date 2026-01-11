@@ -19,7 +19,7 @@ VehicleClaim.CLAIM_TIME_KEY = "claimTimestamp"
 VehicleClaim.LAST_SEEN_KEY = "lastSeenTimestamp"
 
 -- Proximity settings
-VehicleClaim.CLAIM_DISTANCE = 2.0  -- Max distance to claim/interact
+VehicleClaim.CLAIM_DISTANCE = 4.0  -- Max distance to claim/interact
 VehicleClaim.CLAIM_TIME_TICKS = 400  -- Timed action duration (~2 seconds)
 
 -- Command types (client -> server)

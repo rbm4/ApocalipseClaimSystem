@@ -19,12 +19,12 @@ function VehicleClaimPlayerMenu.onFillWorldMenu(playerNum, context, worldObjects
     if not player then return end
     
     -- Add menu option (always visible on any right-click)
-    local option = context:addOption("Meus Veiculos", player, VehicleClaimPlayerMenu.onOpenVehicleList)
+    local option = context:addOption(getText("UI_VehicleClaim_MyVehicles"), player, VehicleClaimPlayerMenu.onOpenVehicleList)
     
     -- Add tooltip
     local tooltip = ISWorldObjectContextMenu.addToolTip()
-    tooltip:setName("Meus Veiculos")
-    tooltip.description = "Ver e gerenciar todos os veiculos que voce reivindicou"
+    tooltip:setName(getText("UI_VehicleClaim_MyVehicles"))
+    tooltip.description = getText("UI_VehicleClaim_ViewManageVehicles")
     option.toolTip = tooltip
 end
 

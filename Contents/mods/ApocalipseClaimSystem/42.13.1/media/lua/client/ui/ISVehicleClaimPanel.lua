@@ -335,13 +335,8 @@ end
 function ISVehicleClaimPanel:update()
     ISPanel.update(self)
     
-    -- Check if vehicle is still valid and in range
+    -- Check if vehicle is still valid
     if not self.vehicle or not self.vehicle:getSquare() then
-        self:onClose()
-        return
-    end
-    
-    if not VehicleClaim.isWithinRange(self.player, self.vehicle) then
         self:onClose()
         return
     end

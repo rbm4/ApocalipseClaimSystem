@@ -76,8 +76,6 @@ function ISVehicleClaimListPanel:initialise()
     self.vehicleList.itemheight = 30
     self.vehicleList.doDrawItem = self.drawVehicleListItem
     self.vehicleList.drawBorder = true
-    self.vehicleList.onmousedown = ISVehicleClaimListPanel.onVehicleListMouseDown
-    self.vehicleList.parent = self
     self:addChild(self.vehicleList)
     y = y + listHeight + padding
     
@@ -192,9 +190,6 @@ function ISVehicleClaimListPanel.drawVehicleListItem(self, y, item, alt)
     if item.item.vehicle == nil then
         -- "No vehicles" placeholder
         r, g, b = 0.5, 0.5, 0.5
-    elseif item.item.distance and item.item.distance > VehicleClaim.CLAIM_DISTANCE then
-        -- Vehicle too far
-        r, g, b = 0.7, 0.5, 0.5
     end
     
     if self.selected == item.index then
@@ -206,28 +201,6 @@ function ISVehicleClaimListPanel.drawVehicleListItem(self, y, item, alt)
     self:drawText(item.text, 10, y + 8, r, g, b, 1, UIFont.Small)
     
     return y + self.itemheight
-end
-
------------------------------------------------------------
--- Event Handlers
------------------------------------------------------------
-
-function ISVehicleClaimListPanel.onVehicleListMouseDown(listBox, x, y)
-    local row = listBox:rowAt(x, y)
-    if row > listBox:size() then
-        return
-    end
-    
-    -- Double-click to manage
-    if listBox.mouseDownTime and (getTimestampMs() - listBox.mouseDownTime < 300) then
-        if listBox.parent then
-            listBox.parent:onManageVehicle()
-        end
-    end
-    
-    listBox.mouseDownTime = getTimestampMs()
-    
-    return ISScrollingListBox.onMouseDown(listBox, x, y)
 end
 
 -----------------------------------------------------------

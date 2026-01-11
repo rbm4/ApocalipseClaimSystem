@@ -3,6 +3,7 @@
     Client-side context menu integration and timed actions
     Adds claim/manage options to vehicle right-click menu
 ]] require "shared/VehicleClaim_Shared"
+require "client/ui/ISVehicleClaimPanel"
 
 local VehicleClaimMenu = {}
 

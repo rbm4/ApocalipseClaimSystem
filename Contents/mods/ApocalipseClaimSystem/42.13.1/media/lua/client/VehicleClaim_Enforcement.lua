@@ -1,7 +1,7 @@
 --[[
     VehicleClaim_Enforcement.lua
     Client-side interaction blocking for claimed vehicles
-    Works alongside server-side enforcement as a UX optimization
+    Build 42.13.1 compatible
 ]]
 
 require "shared/VehicleClaim_Shared"
@@ -9,15 +9,18 @@ require "shared/VehicleClaim_Shared"
 local VehicleClaimEnforcement = {}
 
 -----------------------------------------------------------
--- Vehicle Entry Blocking
+-- Helper Function: Check Vehicle Access
 -----------------------------------------------------------
 
---- Check if player can enter a vehicle (client-side pre-check)
+--- Check if player has access to a vehicle
 --- @param player IsoPlayer
---- @param vehicle IsoVehicle
+--- @param vehicle BaseVehicle
 --- @return boolean
-function VehicleClaimEnforcement.canEnterVehicle(player, vehicle)
+function VehicleClaimEnforcement.hasAccess(player, vehicle)
     if not player or not vehicle then return true end
+    
+    -- Check if vehicle is claimed
+    if not VehicleClaim.isClaimed(vehicle) then return true end
     
     local steamID = VehicleClaim.getPlayerSteamID(player)
     local isAdmin = player:getAccessLevel() == "admin" or player:getAccessLevel() == "moderator"
@@ -28,243 +31,418 @@ function VehicleClaimEnforcement.canEnterVehicle(player, vehicle)
     return VehicleClaim.hasAccess(vehicle, steamID)
 end
 
---- Hook vehicle entry attempt
-local originalVehicleEnter = ISVehicleMenu.onEnter
-if ISVehicleMenu and ISVehicleMenu.onEnter then
-    ISVehicleMenu.onEnter = function(playerObj, vehicle, seat)
-        if not VehicleClaimEnforcement.canEnterVehicle(playerObj, vehicle) then
-            local ownerName = VehicleClaim.getOwnerName(vehicle) or "another player"
-            playerObj:Say("This vehicle belongs to " .. ownerName)
-            return
-        end
-        return originalVehicleEnter(playerObj, vehicle, seat)
-    end
-end
-
------------------------------------------------------------
--- Mechanics Menu Blocking
------------------------------------------------------------
-
---- Block mechanics context options for non-owners
-local function onFillVehicleMenu(playerNum, context, vehicle, test)
-    if test then return end
-    if not vehicle then return end
-    
-    local player = getSpecificPlayer(playerNum)
-    if not player then return end
-    
-    local steamID = VehicleClaim.getPlayerSteamID(player)
-    local isAdmin = player:getAccessLevel() == "admin" or player:getAccessLevel() == "moderator"
-    
-    -- Skip if player has access
-    if VehicleClaim.hasAccess(vehicle, steamID) or isAdmin then
-        return
-    end
-    
-    -- Vehicle is claimed and player has no access - disable relevant options
-    local ownerName = VehicleClaim.getOwnerName(vehicle) or "Owner"
-    
-    -- Find and disable mechanics/interaction options
-    local options = context:getMenuOptionNames()
-    if options then
-        for i = 1, #options do
-            local optName = options[i]
-            local opt = context:getOptionFromName(optName)
-            if opt then
-                -- Disable various vehicle interaction options
-                local blockedOptions = {
-                    "Mechanics", "Vehicle Mechanics", "Sleep", "Sleep in vehicle",
-                    "Lock", "Unlock", "Hotwire", "Start Engine", "Siphon Gas",
-                    "Remove Key", "Switch Seat", "Get/Take Key"
-                }
-                
-                for _, blocked in ipairs(blockedOptions) do
-                    if string.find(optName, blocked) then
-                        opt.notAvailable = true
-                        opt.toolTip = ISWorldObjectContextMenu.addToolTip()
-                        opt.toolTip:setName("Access Denied")
-                        opt.toolTip.description = "This vehicle belongs to " .. ownerName
-                        break
-                    end
-                end
-            end
-        end
-    end
-end
-
------------------------------------------------------------
--- Timed Action Validation
------------------------------------------------------------
-
---- Validate timed actions that target claimed vehicles
-local originalTimedActionIsValid = ISBaseTimedAction.isValid
-if ISBaseTimedAction and ISBaseTimedAction.isValid then
-    local hookedIsValid = function(self)
-        -- Check if this action involves a vehicle
-        if self.vehicle then
-            local player = self.character
-            if player then
-                local steamID = VehicleClaim.getPlayerSteamID(player)
-                local isAdmin = player:getAccessLevel() == "admin" or player:getAccessLevel() == "moderator"
-                
-                if not VehicleClaim.hasAccess(self.vehicle, steamID) and not isAdmin then
-                    -- Block the action
-                    return false
-                end
-            end
-        end
-        
-        -- Call original validation
-        if originalTimedActionIsValid then
-            return originalTimedActionIsValid(self)
-        end
-        return true
-    end
-    
-    -- Only hook if we have the original
-    -- ISBaseTimedAction.isValid = hookedIsValid
-end
-
------------------------------------------------------------
--- Part Interaction Blocking
------------------------------------------------------------
-
---- Block trunk/hood/door interactions for non-owners
-local function onVehiclePartInteraction(player, vehicle, part)
-    if not player or not vehicle then return true end
-    
-    local steamID = VehicleClaim.getPlayerSteamID(player)
-    local isAdmin = player:getAccessLevel() == "admin" or player:getAccessLevel() == "moderator"
-    
-    if VehicleClaim.hasAccess(vehicle, steamID) or isAdmin then
-        return true
-    end
-    
-    -- Block interaction
+--- Get denial message
+--- @param vehicle BaseVehicle
+--- @return string
+function VehicleClaimEnforcement.getDenialMessage(vehicle)
     local ownerName = VehicleClaim.getOwnerName(vehicle) or "another player"
-    player:Say("This vehicle belongs to " .. ownerName)
-    return false
+    return getText("UI_VehicleClaim_VehicleBelongsTo", ownerName)
 end
 
 -----------------------------------------------------------
--- Context Menu Enforcement
+-- Context Menu Blocking (Right-click menu)
 -----------------------------------------------------------
 
---- Late hook to modify context menu after all other mods
-local function lateContextMenuHook(playerNum, context, worldObjects, test)
+--- Comprehensive context menu blocking for claimed vehicles
+--- This blocks ALL context menu options for non-authorized players
+local function onFillWorldObjectContextMenu(playerNum, context, worldObjects, test)
     if test then return end
     
     local player = getSpecificPlayer(playerNum)
     if not player then return end
     
-    -- Find vehicles in context
-    for _, obj in ipairs(worldObjects) do
-        if instanceof(obj, "IsoVehicle") then
-            local vehicle = obj
-            local steamID = VehicleClaim.getPlayerSteamID(player)
-            local isAdmin = player:getAccessLevel() == "admin" or player:getAccessLevel() == "moderator"
-            
-            if not VehicleClaim.hasAccess(vehicle, steamID) and not isAdmin and VehicleClaim.isClaimed(vehicle) then
-                -- Mark all vehicle-related options as unavailable
-                local ownerName = VehicleClaim.getOwnerName(vehicle) or "Owner"
-                
-                -- Iterate through menu options
-                for i = 1, context:getOptions():size() do
-                    local opt = context:getOptions():get(i - 1)
-                    if opt and opt.target == vehicle then
-                        opt.notAvailable = true
-                        if not opt.toolTip then
-                            opt.toolTip = ISWorldObjectContextMenu.addToolTip()
-                        end
-                        opt.toolTip:setName("Access Denied")
-                        opt.toolTip.description = "Vehicle owned by " .. ownerName
-                    end
-                end
-            end
+    -- Find vehicles in worldObjects
+    local vehicle = nil
+    for i = 1, #worldObjects do
+        local obj = worldObjects[i]
+        if obj and instanceof(obj, "BaseVehicle") then
+            vehicle = obj
             break
         end
     end
+    
+    if not vehicle then return end
+    if VehicleClaimEnforcement.hasAccess(player, vehicle) then return end
+    
+    -- Vehicle is claimed and player has no access - block ALL vehicle interactions
+    local ownerName = VehicleClaim.getOwnerName(vehicle) or "Owner"
+    local denyMessage = getText("UI_VehicleClaim_AccessDenied")
+    local denyDescription = getText("UI_VehicleClaim_AccessDeniedDescription", ownerName)
+    
+    -- Get all menu options and disable them
+    local options = context:getOptions()
+    if not options then return end
+    
+    local claimMenuTitle = getText("UI_VehicleClaim_ContextTitle")
+    
+    for i = 0, options:size() - 1 do
+        local option = options:get(i)
+        if option and option.name then
+            -- Don't block the Vehicle Claim menu itself
+            local isClaimMenu = string.find(tostring(option.name), claimMenuTitle) or 
+                               string.find(tostring(option.name), "Vehicle Claim") or
+                               string.find(tostring(option.name), "Claim") or
+                               string.find(tostring(option.name), "Meus Veículos")
+            
+            if not isClaimMenu then
+                option.notAvailable = true
+                
+                if not option.toolTip then
+                    option.toolTip = ISWorldObjectContextMenu.addToolTip()
+                end
+                option.toolTip:setName(denyMessage)
+                option.toolTip.description = denyDescription
+            end
+        end
+    end
 end
 
 -----------------------------------------------------------
--- HUD Indicator
+-- Vehicle Entry Blocking
 -----------------------------------------------------------
 
---- Show ownership indicator when looking at claimed vehicle
-local function onPreUIDraw()
+--- Block vehicle entry via ISVehicleMenu.onEnter hook
+local function hookVehicleEntry()
+    if not ISVehicleMenu or not ISVehicleMenu.onEnter then return end
+    
+    local originalOnEnter = ISVehicleMenu.onEnter
+    ISVehicleMenu.onEnter = function(playerObj, vehicle, seat)
+        if not VehicleClaimEnforcement.hasAccess(playerObj, vehicle) then
+            playerObj:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+            return
+        end
+        return originalOnEnter(playerObj, vehicle, seat)
+    end
+end
+
+-----------------------------------------------------------
+-- Mechanics Panel Blocking (V Keybind)
+-----------------------------------------------------------
+
+--- Block the mechanics panel from opening via OnKeyPressed
+--- The V key opens ISVehicleMechanics panel
+local function onKeyPressed(key)
+    -- V key code is typically 47 in PZ
+    local vKeyCode = getCore():getKey("VehicleMechanics")
+    if key ~= vKeyCode then return end
+    
     local player = getPlayer()
     if not player then return end
     
-    -- Check if player is looking at a vehicle
-    local worldX, worldY = screenToIso(getMouseX(), getMouseY(), 0)
-    if not worldX then return end
+    local vehicle = player:getVehicle()
+    if not vehicle then return end
     
-    local cell = getCell()
-    if not cell then return end
+    if not VehicleClaimEnforcement.hasAccess(player, vehicle) then
+        player:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+        -- Close the mechanics panel if it opens
+        if ISVehicleMechanics.instance then
+            ISVehicleMechanics.instance:close()
+        end
+    end
+end
+
+--- Alternative: Hook ISVehicleMechanics:new to prevent panel creation
+local function hookMechanicsPanel()
+    if not ISVehicleMechanics then return end
     
-    -- Find nearest vehicle to mouse
-    local vehicles = cell:getVehicles()
-    if not vehicles then return end
-    
-    local closestVehicle = nil
-    local closestDist = 2.0  -- Only show for vehicles very close to cursor
-    
-    for i = 0, vehicles:size() - 1 do
-        local v = vehicles:get(i)
-        if v then
-            local vx, vy = v:getX(), v:getY()
-            local dist = math.sqrt((worldX - vx)^2 + (worldY - vy)^2)
-            if dist < closestDist then
-                closestDist = dist
-                closestVehicle = v
+    -- Hook the show method
+    local originalNew = ISVehicleMechanics.new
+    ISVehicleMechanics.new = function(x, y, width, height, character, vehicle)
+        if vehicle and character then
+            if not VehicleClaimEnforcement.hasAccess(character, vehicle) then
+                character:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+                return nil
             end
+        end
+        return originalNew(x, y, width, height, character, vehicle)
+    end
+end
+
+-----------------------------------------------------------
+-- Timed Action Blocking (Install/Uninstall/Repair Parts)
+-----------------------------------------------------------
+
+--- Hook ISBaseTimedAction to block vehicle-related timed actions
+local function hookTimedActions()
+    if not ISBaseTimedAction then return end
+    
+    local originalIsValid = ISBaseTimedAction.isValid
+    ISBaseTimedAction.isValid = function(self)
+        -- Check if this action involves a vehicle
+        local vehicle = self.vehicle
+        if not vehicle and self.part then
+            -- Some actions store the part, get vehicle from part
+            if self.part.getVehicle then
+                vehicle = self.part:getVehicle()
+            end
+        end
+        
+        if vehicle and self.character then
+            if not VehicleClaimEnforcement.hasAccess(self.character, vehicle) then
+                return false
+            end
+        end
+        
+        -- Call original
+        return originalIsValid(self)
+    end
+    
+    -- Also hook perform to double-check
+    local originalPerform = ISBaseTimedAction.perform
+    ISBaseTimedAction.perform = function(self)
+        local vehicle = self.vehicle
+        if not vehicle and self.part then
+            if self.part.getVehicle then
+                vehicle = self.part:getVehicle()
+            end
+        end
+        
+        if vehicle and self.character then
+            if not VehicleClaimEnforcement.hasAccess(self.character, vehicle) then
+                self.character:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+                return
+            end
+        end
+        
+        return originalPerform(self)
+    end
+end
+
+-----------------------------------------------------------
+-- Transfer Items Blocking (Trunk/Glove Box Access)
+-----------------------------------------------------------
+
+--- Hook ISInventoryTransferAction to block item transfers to/from vehicle containers
+local function hookInventoryTransfer()
+    if not ISInventoryTransferAction then return end
+    
+    local originalIsValid = ISInventoryTransferAction.isValid
+    ISInventoryTransferAction.isValid = function(self)
+        -- Check source container
+        if self.srcContainer then
+            local srcVehicle = nil
+            pcall(function()
+                if self.srcContainer.getVehicle then
+                    srcVehicle = self.srcContainer:getVehicle()
+                end
+            end)
+            if srcVehicle and not VehicleClaimEnforcement.hasAccess(self.character, srcVehicle) then
+                return false
+            end
+        end
+        
+        -- Check destination container
+        if self.destContainer then
+            local destVehicle = nil
+            pcall(function()
+                if self.destContainer.getVehicle then
+                    destVehicle = self.destContainer:getVehicle()
+                end
+            end)
+            if destVehicle and not VehicleClaimEnforcement.hasAccess(self.character, destVehicle) then
+                return false
+            end
+        end
+        
+        return originalIsValid(self)
+    end
+end
+
+-----------------------------------------------------------
+-- Container Update Blocking
+-----------------------------------------------------------
+
+--- Close vehicle containers if player doesn't have access
+local function onContainerUpdate(container)
+    if not container then return end
+    
+    local player = getPlayer()
+    if not player then return end
+    
+    -- Safely check if container has getVehicle method
+    local vehicle = nil
+    pcall(function()
+        if container.getVehicle then
+            vehicle = container:getVehicle()
+        end
+    end)
+    
+    if not vehicle then return end
+    if VehicleClaimEnforcement.hasAccess(player, vehicle) then return end
+    
+    -- Block access - close the container
+    player:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+    
+    -- Force close the inventory panel for this container
+    pcall(function()
+        if ISInventoryPage and ISInventoryPage.closeContainerUI then
+            ISInventoryPage.closeContainerUI(container)
+        end
+    end)
+end
+
+-----------------------------------------------------------
+-- Window Smash Blocking
+-----------------------------------------------------------
+
+local function hookSmashWindow()
+    if not ISVehicleMenu or not ISVehicleMenu.onSmashWindow then return end
+    
+    local originalSmashWindow = ISVehicleMenu.onSmashWindow
+    ISVehicleMenu.onSmashWindow = function(playerObj, vehicle, window)
+        if not VehicleClaimEnforcement.hasAccess(playerObj, vehicle) then
+            playerObj:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+            return
+        end
+        return originalSmashWindow(playerObj, vehicle, window)
+    end
+end
+
+-----------------------------------------------------------
+-- Radial Menu Blocking (Controller/Gamepad support)
+-----------------------------------------------------------
+
+local function hookRadialMenu()
+    -- Hook the vehicle radial menu if it exists
+    if not ISRadialMenu then return end
+    
+    -- Hook vehicle-specific radial menus
+    if ISVehicleMenu and ISVehicleMenu.onMechanic then
+        local originalOnMechanic = ISVehicleMenu.onMechanic
+        ISVehicleMenu.onMechanic = function(playerObj, vehicle)
+            if not VehicleClaimEnforcement.hasAccess(playerObj, vehicle) then
+                playerObj:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+                return
+            end
+            return originalOnMechanic(playerObj, vehicle)
+        end
+    end
+end
+
+-----------------------------------------------------------
+-- Siphon Gas Blocking
+-----------------------------------------------------------
+
+local function hookSiphonGas()
+    if not ISVehicleMenu or not ISVehicleMenu.onSiphonGas then return end
+    
+    local originalSiphonGas = ISVehicleMenu.onSiphonGas
+    ISVehicleMenu.onSiphonGas = function(playerObj, vehicle)
+        if not VehicleClaimEnforcement.hasAccess(playerObj, vehicle) then
+            playerObj:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+            return
+        end
+        return originalSiphonGas(playerObj, vehicle)
+    end
+end
+
+-----------------------------------------------------------
+-- Hotwire Blocking
+-----------------------------------------------------------
+
+local function hookHotwire()
+    if not ISVehicleMenu or not ISVehicleMenu.onHotwire then return end
+    
+    local originalHotwire = ISVehicleMenu.onHotwire
+    ISVehicleMenu.onHotwire = function(playerObj, vehicle)
+        if not VehicleClaimEnforcement.hasAccess(playerObj, vehicle) then
+            playerObj:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+            return
+        end
+        return originalHotwire(playerObj, vehicle)
+    end
+end
+
+-----------------------------------------------------------
+-- Lock/Unlock Door Blocking
+-----------------------------------------------------------
+
+local function hookLockDoors()
+    if not ISVehicleMenu then return end
+    
+    if ISVehicleMenu.onLockDoor then
+        local originalLockDoor = ISVehicleMenu.onLockDoor
+        ISVehicleMenu.onLockDoor = function(playerObj, vehicle, part)
+            if not VehicleClaimEnforcement.hasAccess(playerObj, vehicle) then
+                playerObj:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+                return
+            end
+            return originalLockDoor(playerObj, vehicle, part)
         end
     end
     
-    if closestVehicle and VehicleClaim.isClaimed(closestVehicle) then
-        local steamID = VehicleClaim.getPlayerSteamID(player)
-        local ownerName = VehicleClaim.getOwnerName(closestVehicle) or "Unknown"
-        local hasAccess = VehicleClaim.hasAccess(closestVehicle, steamID)
-        
-        -- Draw ownership indicator near mouse
-        local mx, my = getMouseX(), getMouseY()
-        local font = UIFont.Small
-        
-        local text
-        local r, g, b
-        
-        if hasAccess then
-            if VehicleClaim.getOwnerID(closestVehicle) == steamID then
-                text = "[Your Vehicle]"
-                r, g, b = 0.3, 0.9, 0.3
-            else
-                text = "[Shared - " .. ownerName .. "]"
-                r, g, b = 0.9, 0.9, 0.3
+    if ISVehicleMenu.onUnlockDoor then
+        local originalUnlockDoor = ISVehicleMenu.onUnlockDoor
+        ISVehicleMenu.onUnlockDoor = function(playerObj, vehicle, part)
+            if not VehicleClaimEnforcement.hasAccess(playerObj, vehicle) then
+                playerObj:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+                return
             end
-        else
-            text = "[Owned: " .. ownerName .. "]"
-            r, g, b = 0.9, 0.3, 0.3
+            return originalUnlockDoor(playerObj, vehicle, part)
         end
-        
-        -- Draw with shadow
-        local textW = getTextManager():MeasureStringX(font, text)
-        local drawX = mx + 20
-        local drawY = my - 10
-        
-        -- Shadow
-        getTextManager():DrawString(font, drawX + 1, drawY + 1, text, 0, 0, 0, 0.8)
-        -- Text
-        getTextManager():DrawString(font, drawX, drawY, text, r, g, b, 1)
     end
+end
+
+-----------------------------------------------------------
+-- Sleep in Vehicle Blocking
+-----------------------------------------------------------
+
+local function hookSleepInVehicle()
+    if not ISVehicleMenu or not ISVehicleMenu.onSleep then return end
+    
+    local originalSleep = ISVehicleMenu.onSleep
+    ISVehicleMenu.onSleep = function(playerObj, vehicle, seat)
+        if not VehicleClaimEnforcement.hasAccess(playerObj, vehicle) then
+            playerObj:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+            return
+        end
+        return originalSleep(playerObj, vehicle, seat)
+    end
+end
+
+-----------------------------------------------------------
+-- Initialization
+-----------------------------------------------------------
+
+local function initializeHooks()
+    print("[VehicleClaim] Initializing enforcement hooks for Build 42...")
+    
+    -- Apply all hooks
+    hookVehicleEntry()
+    hookMechanicsPanel()
+    hookTimedActions()
+    hookInventoryTransfer()
+    hookSmashWindow()
+    hookRadialMenu()
+    hookSiphonGas()
+    hookHotwire()
+    hookLockDoors()
+    hookSleepInVehicle()
+    
+    print("[VehicleClaim] Enforcement hooks initialized")
 end
 
 -----------------------------------------------------------
 -- Event Registration
 -----------------------------------------------------------
 
-Events.OnFillWorldObjectContextMenu.Add(lateContextMenuHook)
+-- Register context menu blocking
+Events.OnFillWorldObjectContextMenu.Add(onFillWorldObjectContextMenu)
 
--- Optional: HUD indicator (can be resource intensive)
--- Events.OnPreUIDraw.Add(onPreUIDraw)
+-- Register container update blocking with error handling
+Events.OnContainerUpdate.Add(function(container)
+    pcall(onContainerUpdate, container)
+end)
+
+-- Register key press handler for V key mechanics panel
+Events.OnKeyPressed.Add(onKeyPressed)
+
+-- Initialize hooks when game starts
+Events.OnGameStart.Add(initializeHooks)
+
+-- Also try to initialize immediately if game is already running
+if getPlayer() then
+    initializeHooks()
+end
 
 return VehicleClaimEnforcement

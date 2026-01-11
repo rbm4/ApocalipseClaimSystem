@@ -1,0 +1,452 @@
+# Vehicle Claim System - Technical Documentation
+
+A secure, server-authoritative vehicle ownership system for Project Zomboid multiplayer servers.
+
+## Overview
+
+This mod implements a robust vehicle claiming system with proper client-server architecture, preventing cheating through server-side validation and providing a clean UI for vehicle management.
+
+---
+
+## Architecture Philosophy
+
+### **Server-Authoritative Design**
+All critical operations (claiming, releasing, access control) are validated and executed **exclusively on the server**. Clients send requests, but the server has final authority over all state changes.
+
+### **Anti-Cheat Measures**
+- **Steam ID Verification**: Server validates that the requesting player's Steam ID matches the command
+- **Proximity Checks**: Server verifies player is within range before allowing actions
+- **Ownership Validation**: All modifications require proof of ownership or admin privileges
+- **ModData Sync**: Vehicle claim state is stored in vehicle ModData and synchronized by the game engine
+
+---
+
+## File Structure & Responsibilities
+
+### **📁 Shared Files** (`media/lua/shared/`)
+Loaded on both client and server. Contains constants, utilities, and validation helpers.
+
+#### **`VehicleClaim_Shared.lua`**
+**Purpose:** Common functionality and constants available to both client and server.
+
+**Key Responsibilities:**
+- Define all command/response constants
+- Define ModData keys for vehicle storage
+- Provide utility functions: `isClaimed()`, `hasAccess()`, `getOwnerID()`, etc.
+- Calculate distances and validate proximity
+- Read sandbox configuration
+- Count player claims and enforce limits
+
+**Security Note:** All functions here are read-only or local calculations. No state mutations occur in shared code.
+
+---
+
+### **📁 Server Files** (`media/lua/server/`)
+Server-only code with authority over all state changes.
+
+#### **`VehicleClaim_ServerCommands.lua`**
+**Purpose:** Authoritative command processor and state manager.
+
+**Key Responsibilities:**
+- **Receive client commands** via `onClientCommand()`
+- **Validate all requests**:
+  - Verify Steam ID matches requesting player
+  - Check proximity (player within 5 tiles of vehicle)
+  - Validate ownership for protected actions
+  - Enforce claim limits
+- **Execute state changes**:
+  - Initialize claim data in vehicle ModData
+  - Add/remove allowed players
+  - Release claims
+- **Send responses** back to clients
+- **Broadcast changes** via `vehicle:transmitModData()`
+
+**Security Flow:**
+```
+Client Request → Server Validates → Execute if Valid → Sync to All Clients
+                        ↓
+                   (Reject if invalid)
+```
+
+**Anti-Cheat Implementation:**
+- Every command checks `VehicleClaim.getPlayerSteamID(player)` against `args.steamID`
+- Proximity verified server-side using `VehicleClaim.isWithinRange()`
+- Ownership checked before allowing modifications
+- Claim limit validated before new claims
+
+---
+
+### **📁 Client Files** (`media/lua/client/`)
+Client-side UI, context menus, and action queueing.
+
+#### **`VehicleClaim_ContextMenu.lua`**
+**Purpose:** Right-click context menu integration for vehicles.
+
+**Responsibilities:**
+- Detect vehicle under cursor (with fallback spatial search)
+- Show appropriate menu options based on claim state
+- Queue timed actions for claiming/releasing
+- Open management panels
+
+**Security Note:** Only **initiates requests**. Does not modify state directly.
+
+**Vehicle Detection Logic:**
+1. Check if clicked object is `IsoVehicle` (direct click)
+2. If not found, search clicked square for nearest vehicle
+3. Use distance-based selection to find closest vehicle within 5 tiles
+4. Verify player proximity before showing menu
+
+#### **`VehicleClaim_ClientCommands.lua`**
+**Purpose:** Handle server responses and update local UI.
+
+**Responsibilities:**
+- Process server command responses
+- Display notifications to player
+- Refresh open UI panels
+- Handle success/failure messages
+
+**Important:** This file **receives** data from server but never modifies vehicle state locally.
+
+#### **`VehicleClaim_Enforcement.lua`**
+**Purpose:** Client-side UX optimizations and interaction blocking.
+
+**Responsibilities:**
+- Pre-check access before vehicle entry (fast feedback)
+- Block mechanics menu for non-owners
+- Disable interaction options for claimed vehicles
+
+**Security Note:** Client-side enforcement is **UX only**. Server still validates all actions. Modded clients cannot bypass server checks.
+
+---
+
+### **📁 Client UI Files** (`media/lua/client/ui/`)
+ISUI-based panels for vehicle management.
+
+#### **`ISVehicleClaimPanel.lua`**
+**Purpose:** Management panel for a single vehicle.
+
+**Features:**
+- Display vehicle owner and claim info
+- List allowed players
+- Add/remove player access
+- Release claim (with confirmation)
+- Auto-closes if player moves too far or loses ownership
+
+**Data Flow:**
+- Reads claim data from vehicle ModData (synced by server)
+- Sends modification requests to server via `sendClientCommand()`
+- Refreshes on server response
+
+#### **`ISVehicleClaimListPanel.lua`**
+**Purpose:** List all vehicles claimed by the current player.
+
+**Features:**
+- Shows all player's vehicles with distances
+- Display claim count vs. limit (e.g., "3 / 5 veículos")
+- Quick access to individual vehicle management
+- Auto-refresh every 5 seconds
+- Double-click to manage vehicle
+
+**Data Source:** Scans all vehicles in cell and filters by owner Steam ID.
+
+#### **`VehicleClaim_PlayerMenu.lua`**
+**Purpose:** Add "Meus Veículos" option to player self-menu.
+
+**Functionality:**
+- Adds right-click option on self to open vehicle list
+- Entry point for vehicle management
+
+---
+
+## Client-Server Communication Flow
+
+### **Command Types**
+
+#### **Client → Server Commands**
+Defined in `VehicleClaim.CMD_*` constants:
+
+| Command | Purpose | Validation Required |
+|---------|---------|-------------------|
+| `claimVehicle` | Request to claim a vehicle | Proximity, not already claimed, under limit |
+| `releaseClaim` | Release ownership | Ownership or admin |
+| `addAllowedPlayer` | Grant access to player | Ownership or admin |
+| `removeAllowedPlayer` | Revoke access | Ownership or admin |
+| `requestVehicleInfo` | Query vehicle details | None (read-only) |
+
+#### **Server → Client Responses**
+Defined in `VehicleClaim.RESP_*` constants:
+
+| Response | Purpose |
+|----------|---------|
+| `claimSuccess` | Claim approved |
+| `claimFailed` | Claim denied (with reason) |
+| `releaseSuccess` | Release approved |
+| `playerAdded` | Access granted |
+| `playerRemoved` | Access revoked |
+| `accessDenied` | Permission denied |
+| `vehicleInfo` | Vehicle data response |
+
+### **Example: Claiming a Vehicle**
+
+```lua
+// 1. PLAYER RIGHT-CLICKS VEHICLE
+VehicleClaimMenu.onFillWorldObjectContextMenu()
+  → Shows "Claim Vehicle" option
+
+// 2. PLAYER CLICKS "CLAIM VEHICLE"
+VehicleClaimMenu.onClaimVehicle()
+  → Creates ISClaimVehicleAction (timed action)
+  → Action performs after ~2 seconds
+
+// 3. TIMED ACTION COMPLETES (CLIENT)
+ISClaimVehicleAction:perform()
+  → sendClientCommand(player, "VehicleClaim", "claimVehicle", {
+      vehicleID = 12345,
+      steamID = "76561198...",
+      playerName = "Player"
+    })
+
+// 4. SERVER RECEIVES COMMAND
+VehicleClaimServer.onClientCommand()
+  → handleClaimVehicle(player, args)
+    → VALIDATE steamID matches player ✓
+    → VALIDATE player within range ✓
+    → VALIDATE vehicle not claimed ✓
+    → VALIDATE player under claim limit ✓
+    → initializeClaimData(vehicle, steamID, playerName)
+    → vehicle:transmitModData() // Syncs to all clients
+
+// 5. SERVER SENDS RESPONSE
+sendServerCommand(player, "VehicleClaim", "claimSuccess", {...})
+
+// 6. CLIENT RECEIVES RESPONSE
+VehicleClaimClient.onServerCommand()
+  → VehicleClaimClient.onClaimSuccess(args)
+    → player:Say("Successfully claimed Vehicle")
+    → Refresh open UI panels
+
+// 7. ALL CLIENTS RECEIVE MODDATA UPDATE (automatic)
+Vehicle ModData synced by game engine
+  → UI panels refresh
+  → Context menus update
+  → Enforcement checks activate
+```
+
+---
+
+## Data Storage
+
+### **Vehicle ModData Structure**
+
+Claim data is stored in each vehicle's ModData under the key `"VehicleClaimData"`:
+
+```lua
+vehicle:getModData()["VehicleClaimData"] = {
+    ownerSteamID = "76561198XXXXXXXX",
+    ownerName = "PlayerName",
+    allowedPlayers = {
+        ["76561198YYYYYYYY"] = "AllowedPlayer1",
+        ["76561198ZZZZZZZZ"] = "AllowedPlayer2"
+    },
+    claimTimestamp = 12345,  -- Game minutes since start
+    lastSeenTimestamp = 12346
+}
+```
+
+**Persistence:** ModData is saved with the vehicle in the world save. Claims persist across server restarts.
+
+**Sync:** Changes trigger `vehicle:transmitModData()`, which the game engine automatically broadcasts to all clients.
+
+---
+
+## Error Handling & Validation
+
+### **Error Codes**
+Defined in `VehicleClaim.ERR_*` constants:
+
+| Error Code | Meaning | Trigger |
+|------------|---------|---------|
+| `vehicleNotFound` | Vehicle doesn't exist | Invalid vehicle ID |
+| `alreadyClaimed` | Vehicle has owner | Claim attempt on owned vehicle |
+| `notOwner` | Insufficient permissions | Non-owner tries to modify |
+| `tooFar` | Out of range | Distance > 5 tiles |
+| `playerNotFound` | Target player offline | Add player with invalid name |
+| `claimLimitReached` | Max vehicles claimed | Exceeds sandbox limit |
+
+### **Validation Layers**
+
+#### **Layer 1: Client Pre-Check (UX)**
+- Context menu checks claim state before showing options
+- UI validates input before sending commands
+- Enforcement prevents interactions without server round-trip
+
+**Purpose:** Fast feedback to player
+**Security:** Bypassable by modded clients (doesn't matter - server validates)
+
+#### **Layer 2: Server Validation (Authority)**
+- Every command re-validates all conditions
+- Steam ID verification
+- Proximity checks
+- Ownership verification
+- Claim limit enforcement
+
+**Purpose:** Actual security
+**Security:** Cannot be bypassed
+
+#### **Layer 3: Response Handling (Feedback)**
+- Client displays appropriate error messages
+- UI updates based on actual server state
+- Graceful degradation on failures
+
+**Purpose:** User experience
+**Security:** N/A (informational only)
+
+---
+
+## Sandbox Configuration
+
+### **`sandbox-options.txt`**
+Defines server-configurable settings:
+
+```
+option VehicleClaimSystem.MaxClaimsPerPlayer
+{
+    type = integer,
+    min = 1,
+    max = 50,
+    default = 5,
+    page = VehicleClaimSystem,
+    translation = VehicleClaimSystem_MaxClaimsPerPlayer,
+}
+```
+
+**Access in code:**
+```lua
+local maxClaims = SandboxVars.VehicleClaimSystem.MaxClaimsPerPlayer
+```
+
+**Server Authority:** Only server reads sandbox vars. Clients cannot modify or override limits.
+
+---
+
+## Security Summary
+
+### **What Prevents Cheating?**
+
+1. **Server-Side Validation**: Every state change validated by server
+2. **Steam ID Verification**: Server checks player identity
+3. **ModData Authority**: Only server modifies ModData, clients receive sync
+4. **Proximity Enforcement**: Server calculates distances, not client
+5. **No Client Trust**: Client requests are suggestions, server decides
+6. **Read-Only Shared Code**: Shared utilities don't modify state
+7. **Claim Limit Enforcement**: Server tracks and enforces per-player limits
+
+### **What Can Modded Clients NOT Do?**
+
+❌ Claim vehicles without server approval  
+❌ Bypass proximity checks  
+❌ Modify other players' vehicles  
+❌ Exceed claim limits  
+❌ Grant themselves access to others' vehicles  
+❌ Fake Steam IDs  
+❌ Modify synced ModData directly
+
+### **What Can Modded Clients Do?**
+
+✅ See local UI earlier (cosmetic only)  
+✅ Send invalid requests (server rejects them)  
+✅ Skip client-side enforcement (server still blocks)
+
+**Result:** Modded clients gain no actual advantage. All security is server-side.
+
+---
+
+## Key Design Patterns
+
+### **1. Command-Response Pattern**
+```
+Client: sendClientCommand("claimVehicle", {data})
+Server: validates → executes → sendServerCommand("claimSuccess", {result})
+Client: receives response → updates UI
+```
+
+### **2. Timed Actions**
+```
+Player initiates action → ISClaimVehicleAction queues
+→ ~2 second delay with animation
+→ Action completes → sends server command
+```
+
+**Purpose:** Realistic timing, prevents spam, cancellable actions
+
+### **3. ModData Synchronization**
+```
+Server: vehicle:getModData()[key] = value
+Server: vehicle:transmitModData()
+Game Engine: broadcasts to all clients automatically
+Clients: read vehicle:getModData()[key]
+```
+
+**Purpose:** Reliable state sync without manual network code
+
+### **4. Defensive Programming**
+- Always check if player/vehicle exists before operations
+- Validate Steam IDs match
+- Re-check conditions on server even if client checked
+- Graceful degradation on missing data
+
+---
+
+## Testing Checklist
+
+### **Functionality**
+- ✅ Can claim unclaimed vehicle within range
+- ✅ Cannot claim vehicle outside range
+- ✅ Cannot claim already-claimed vehicle
+- ✅ Cannot exceed claim limit
+- ✅ Can release own vehicle
+- ✅ Cannot release other player's vehicle
+- ✅ Can add/remove allowed players
+- ✅ Allowed players can use vehicle
+- ✅ Non-allowed players blocked from vehicle
+
+### **Security**
+- ✅ Server validates all commands
+- ✅ Steam ID mismatches rejected
+- ✅ Proximity checked server-side
+- ✅ Claim limit enforced server-side
+- ✅ ModData changes require ownership
+
+### **UI**
+- ✅ Context menu shows correct options
+- ✅ Management panel displays accurate data
+- ✅ Vehicle list shows all claimed vehicles
+- ✅ Error messages display properly
+- ✅ Panels close if too far from vehicle
+
+---
+
+## Future Expansion Ideas
+
+- **Decay System**: Unclaim vehicles after X days inactive
+- **Shared Ownership**: Multiple owners per vehicle
+- **Faction Integration**: Faction-wide vehicle pools
+- **Key System**: Physical keys required for access
+- **Break-In Mechanics**: Allow lockpicking with cooldown/alerts
+
+---
+
+## Contributing
+
+When modifying this system, remember:
+1. **Never trust the client** - validate everything server-side
+2. **Use ModData for persistence** - it's automatically saved and synced
+3. **Follow command-response pattern** - keep client-server communication clear
+4. **Test with multiple players** - ensure sync works correctly
+5. **Log important events** - use `VehicleClaim.log()` for debugging
+
+---
+
+## License
+
+This mod is provided as-is for Project Zomboid servers. Modify and distribute freely with attribution.

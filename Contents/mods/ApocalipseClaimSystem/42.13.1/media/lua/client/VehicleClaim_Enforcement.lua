@@ -141,6 +141,152 @@ local function onKeyPressed(key)
     end
 end
 
+-----------------------------------------------------------
+-- E Key Interaction Blocking (Hood/Engine Access)
+-----------------------------------------------------------
+
+--- Find the nearest vehicle to the player within interaction range
+local function getNearbyVehicle(player)
+    if not player then return nil end
+    
+    local px, py = player:getX(), player:getY()
+    local cell = getCell()
+    if not cell then return nil end
+    
+    local vehicles = cell:getVehicles()
+    if not vehicles then return nil end
+    
+    local closestVehicle = nil
+    local closestDist = 3.0  -- Interaction range
+    
+    for i = 0, vehicles:size() - 1 do
+        local v = vehicles:get(i)
+        if v then
+            local vx, vy = v:getX(), v:getY()
+            local dist = math.sqrt((px - vx)^2 + (py - vy)^2)
+            if dist < closestDist then
+                closestDist = dist
+                closestVehicle = v
+            end
+        end
+    end
+    
+    return closestVehicle
+end
+
+--- Block E key interaction with vehicle hood/engine
+local function onKeyPressedInteract(key)
+    -- E key / Interact key
+    local interactKey = getCore():getKey("Interact")
+    if key ~= interactKey then return end
+    
+    local player = getPlayer()
+    if not player then return end
+    
+    -- Don't block if player is inside a vehicle
+    if player:getVehicle() then return end
+    
+    -- Check for nearby vehicle
+    local vehicle = getNearbyVehicle(player)
+    if not vehicle then return end
+    
+    if not VehicleClaimEnforcement.hasAccess(player, vehicle) then
+        -- Cancel any pending timed actions related to vehicles
+        if player:getCurrentState() then
+            local stateName = tostring(player:getCurrentState())
+            if string.find(stateName, "Vehicle") or string.find(stateName, "Hood") then
+                player:StopAllActionQueue()
+            end
+        end
+    end
+end
+
+--- Hook vehicle interaction actions (install, uninstall, repair parts)
+--- Instead of blocking at .new(), we let the action be created but block at .isValid()
+local function hookVehiclePartActions()
+    -- Hook ISInstallVehiclePart.isValid
+    if ISInstallVehiclePart then
+        local originalIsValid = ISInstallVehiclePart.isValid
+        ISInstallVehiclePart.isValid = function(self)
+            if self.vehicle and self.character then
+                if not VehicleClaimEnforcement.hasAccess(self.character, self.vehicle) then
+                    self.character:Say(VehicleClaimEnforcement.getDenialMessage(self.vehicle))
+                    return false
+                end
+            end
+            return originalIsValid(self)
+        end
+    end
+    
+    -- Hook ISUninstallVehiclePart.isValid
+    if ISUninstallVehiclePart then
+        local originalIsValid = ISUninstallVehiclePart.isValid
+        ISUninstallVehiclePart.isValid = function(self)
+            if self.vehicle and self.character then
+                if not VehicleClaimEnforcement.hasAccess(self.character, self.vehicle) then
+                    self.character:Say(VehicleClaimEnforcement.getDenialMessage(self.vehicle))
+                    return false
+                end
+            end
+            return originalIsValid(self)
+        end
+    end
+    
+    -- Hook ISRepairVehiclePartAction.isValid
+    if ISRepairVehiclePartAction then
+        local originalIsValid = ISRepairVehiclePartAction.isValid
+        ISRepairVehiclePartAction.isValid = function(self)
+            if self.vehicle and self.character then
+                if not VehicleClaimEnforcement.hasAccess(self.character, self.vehicle) then
+                    self.character:Say(VehicleClaimEnforcement.getDenialMessage(self.vehicle))
+                    return false
+                end
+            end
+            return originalIsValid(self)
+        end
+    end
+    
+    -- Hook ISTakeGasFromVehicle.isValid
+    if ISTakeGasFromVehicle then
+        local originalIsValid = ISTakeGasFromVehicle.isValid
+        ISTakeGasFromVehicle.isValid = function(self)
+            local vehicle = nil
+            pcall(function()
+                if self.part and self.part.getVehicle then
+                    vehicle = self.part:getVehicle()
+                end
+            end)
+            if vehicle and self.character then
+                if not VehicleClaimEnforcement.hasAccess(self.character, vehicle) then
+                    self.character:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+                    return false
+                end
+            end
+            return originalIsValid(self)
+        end
+    end
+    
+    -- Hook ISAddGasFromPump.isValid
+    if ISAddGasFromPump then
+        local originalIsValid = ISAddGasFromPump.isValid
+        ISAddGasFromPump.isValid = function(self)
+            local vehicle = nil
+            pcall(function()
+                if self.part and self.part.getVehicle then
+                    vehicle = self.part:getVehicle()
+                end
+            end)
+            if vehicle and self.character then
+                if not VehicleClaimEnforcement.hasAccess(self.character, vehicle) then
+                    self.character:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+                    return false
+                end
+            end
+            return originalIsValid(self)
+        end
+    end
+end
+
 --- Alternative: Hook ISVehicleMechanics:new to prevent panel creation
 local function hookMechanicsPanel()
     if not ISVehicleMechanics then return end
@@ -418,6 +564,7 @@ local function initializeHooks()
     hookHotwire()
     hookLockDoors()
     hookSleepInVehicle()
+    hookVehiclePartActions()    -- Block install/uninstall/repair parts
     
     print("[VehicleClaim] Enforcement hooks initialized")
 end
@@ -436,6 +583,9 @@ end)
 
 -- Register key press handler for V key mechanics panel
 Events.OnKeyPressed.Add(onKeyPressed)
+
+-- Register E key interaction blocking
+Events.OnKeyPressed.Add(onKeyPressedInteract)
 
 -- Initialize hooks when game starts
 Events.OnGameStart.Add(initializeHooks)

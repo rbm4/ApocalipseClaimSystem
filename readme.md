@@ -1,6 +1,18 @@
-# Vehicle Claim System - Technical Documentation
+# ApocalipseClaimSystem - Vehicle Claim System
+
+## Technical Documentation
 
 A secure, server-authoritative vehicle ownership system for Project Zomboid multiplayer servers.
+
+### Build Compatibility
+**Tested and compatible with:** Project Zomboid Build 42.13.1
+
+### Multi-Language Support
+The system supports multiple languages with automatic detection:
+- **Brazilian Portuguese (PT)** - Primary language (baseline)
+- **English (EN)** - Secondary language
+
+Translation files: `media/lua/shared/Translate/PT/UI_PT.txt` and `media/lua/shared/Translate/EN/UI_EN.txt`
 
 ## Overview
 
@@ -15,9 +27,38 @@ All critical operations (claiming, releasing, access control) are validated and 
 
 ### **Anti-Cheat Measures**
 - **Steam ID Verification**: Server validates that the requesting player's Steam ID matches the command
-- **Proximity Checks**: Server verifies player is within range before allowing actions
+- **Proximity Checks**: Server verifies player is within range before allowing claim actions
 - **Ownership Validation**: All modifications require proof of ownership or admin privileges
 - **ModData Sync**: Vehicle claim state is stored in vehicle ModData and synchronized by the game engine
+- **Client-Side Enforcement**: Comprehensive hooks block unauthorized interactions locally
+
+---
+
+## Quick File Reference
+
+```
+Contents/mods/ApocalipseClaimSystem/42.13.1/
+├── mod.info
+├── media/
+│   └── lua/
+│       ├── shared/
+│       │   ├── VehicleClaim_Shared.lua          # Constants, utilities, claim counting
+│       │   └── Translate/
+│       │       ├── PT/UI_PT.txt                 # Portuguese translations
+│       │       └── EN/UI_EN.txt                 # English translations
+│       ├── server/
+│       │   └── VehicleClaim_ServerCommands.lua  # Server-side validation & state changes
+│       └── client/
+│           ├── VehicleClaim_ClientCommands.lua  # Server response handling
+│           ├── VehicleClaim_ContextMenu.lua     # Right-click menu integration
+│           ├── VehicleClaim_Enforcement.lua     # ⭐ Build 42 interaction blocking
+│           ├── VehicleClaim_PlayerMenu.lua      # "Meus Veículos" self-menu option
+│           └── ui/
+│               ├── ISVehicleClaimPanel.lua      # Single vehicle management
+│               └── ISVehicleClaimListPanel.lua  # All claimed vehicles list
+└── common/
+    └── sandbox-options.txt                      # MaxClaimsPerPlayer setting
+```
 
 ---
 
@@ -38,6 +79,33 @@ Loaded on both client and server. Contains constants, utilities, and validation 
 - Count player claims and enforce limits
 
 **Security Note:** All functions here are read-only or local calculations. No state mutations occur in shared code.
+
+---
+
+### **📁 Translation Files** (`media/lua/shared/Translate/`)
+
+#### **`PT/UI_PT.txt`** (Portuguese - Primary)
+Contains all UI strings in Brazilian Portuguese as the baseline language.
+
+#### **`EN/UI_EN.txt`** (English - Secondary)
+Contains all UI strings translated to English.
+
+**Translation Keys Used:**
+| Key | Purpose |
+|-----|---------|
+| `UI_VehicleClaim_Title` | Panel title |
+| `UI_VehicleClaim_Owner` | Owner label |
+| `UI_VehicleClaim_AllowedPlayers` | Allowed players section |
+| `UI_VehicleClaim_AddPlayer` | Add player button |
+| `UI_VehicleClaim_RemovePlayer` | Remove player button |
+| `UI_VehicleClaim_Release` | Release claim button |
+| `UI_VehicleClaim_Close` | Close button |
+| `UI_VehicleClaim_NoAccess` | Access denied message |
+| `UI_VehicleClaim_ClaimSuccess` | Claim success message |
+| `UI_VehicleClaim_ReleaseSuccess` | Release success message |
+| `UI_VehicleClaim_LimitReached` | Claim limit error |
+| `UI_VehicleClaim_MyVehicles` | My vehicles menu |
+| `UI_VehicleClaim_Manage` | Manage button |
 
 ---
 
@@ -102,20 +170,70 @@ Client-side UI, context menus, and action queueing.
 **Responsibilities:**
 - Process server command responses
 - Display notifications to player
-- Refresh open UI panels
-- Handle success/failure messages
+- Refresh open UI panels via panel registry
+- Handle success/failure messages with localized text
 
 **Important:** This file **receives** data from server but never modifies vehicle state locally.
 
-#### **`VehicleClaim_Enforcement.lua`**
-**Purpose:** Client-side UX optimizations and interaction blocking.
+#### **`VehicleClaim_Enforcement.lua`** ⭐ (Build 42.13.1 Rewritten)
+**Purpose:** Comprehensive client-side interaction blocking for claimed vehicles.
 
-**Responsibilities:**
-- Pre-check access before vehicle entry (fast feedback)
-- Block mechanics menu for non-owners
-- Disable interaction options for claimed vehicles
+**Architecture:**
+- Hooks are initialized via `OnGameStart` event to ensure all Build 42 classes are loaded
+- Uses `.isValid()` method hooks instead of `.new()` constructor hooks
+- Central `hasAccess()` function determines authorization
 
-**Security Note:** Client-side enforcement is **UX only**. Server still validates all actions. Modded clients cannot bypass server checks.
+**CRITICAL: Why `.isValid()` instead of `.new()`:**
+```lua
+-- ❌ WRONG: Returning nil from .new() breaks ALL actions
+ISUninstallVehiclePart.new = function(...)
+    if not hasAccess(...) then return nil end  -- BREAKS GAME!
+    return original_new(...)
+end
+
+-- ✅ CORRECT: Returning false from .isValid() gracefully cancels
+ISUninstallVehiclePart.isValid = function(self)
+    if not hasAccess(...) then return false end  -- Works correctly
+    return original_isValid(self)
+end
+```
+
+**Access Control:**
+```lua
+VehicleClaimEnforcement.hasAccess(player, vehicle)
+-- Returns true if:
+--   • Vehicle is not claimed
+--   • Player is the owner (Steam ID match)
+--   • Player is in allowed players list
+--   • Player is an admin (isAdmin())
+```
+
+**Hooks Implemented:**
+
+| Hook Function | Target | Purpose |
+|--------------|--------|---------|
+| `hookVehicleEntry` | `ISVehicleMenu.onEnter` | Block entering claimed vehicles |
+| `hookMechanicsPanel` | `ISVehicleMechanics.new` | Block V key mechanics panel |
+| `hookVehiclePartActions` | `ISInstallVehiclePart.isValid`, `ISUninstallVehiclePart.isValid`, `ISRepairVehiclePartAction.isValid` | Block part install/uninstall/repair |
+| `hookGasActions` | `ISTakeGasFromVehicle.isValid`, `ISAddGasFromPump.isValid` | Block gas siphon/refuel |
+| `hookTimedActions` | `ISBaseTimedAction.isValid`, `.perform` | Generic timed action blocking |
+| `hookInventoryTransfer` | `ISInventoryTransferAction.isValid` | Block trunk access |
+| `hookSmashWindow` | `ISVehicleMenu.onSmashWindow` | Block window smashing |
+| `hookSiphonGas` | `ISVehicleMenu.onSiphonGas` | Block gas siphon menu |
+| `hookHotwire` | `ISVehicleMenu.onHotwire` | Block hotwiring |
+| `hookLockDoors` | `onLockDoor`, `onUnlockDoor` | Block lock/unlock |
+| `hookSleepInVehicle` | `ISVehicleMenu.onSleep` | Block sleeping in vehicle |
+| `onFillWorldObjectContextMenu` | Event handler | Strip ALL context menu options except claim |
+| `onKeyPressed` | Event handler | Block V key for mechanics panel |
+| `onKeyPressedInteract` | Event handler | Block E key for hood interaction |
+
+**Key Event Handlers:**
+- `OnFillWorldObjectContextMenu` - Intercepts context menu before display
+- `OnKeyPressed` - Intercepts V key before mechanics panel opens
+- `OnKeyStarted` - Intercepts E key before hood interaction starts
+- `OnGameStart` - Initializes all hooks after game loads
+
+**Security Note:** Client-side enforcement is **UX only**. Server still validates all actions. Modded clients cannot bypass server checks, they just won't see the blocking UI.
 
 ---
 
@@ -127,15 +245,18 @@ ISUI-based panels for vehicle management.
 
 **Features:**
 - Display vehicle owner and claim info
-- List allowed players
+- List allowed players with scrolling list
 - Add/remove player access
-- Release claim (with confirmation)
-- Auto-closes if player moves too far or loses ownership
+- Release claim (with confirmation dialog)
+- Works from any distance (no movement restriction)
+- Auto-refresh on server response via panel registry
+
+**Height:** 440px to accommodate all UI elements
 
 **Data Flow:**
 - Reads claim data from vehicle ModData (synced by server)
 - Sends modification requests to server via `sendClientCommand()`
-- Refreshes on server response
+- Refreshes on server response via `VehicleClaimPanelRegistry`
 
 #### **`ISVehicleClaimListPanel.lua`**
 **Purpose:** List all vehicles claimed by the current player.
@@ -143,9 +264,9 @@ ISUI-based panels for vehicle management.
 **Features:**
 - Shows all player's vehicles with distances
 - Display claim count vs. limit (e.g., "3 / 5 veículos")
-- Quick access to individual vehicle management
+- Quick access to individual vehicle management via "Gerenciar" button
 - Auto-refresh every 5 seconds
-- Double-click to manage vehicle
+- Shows vehicle name and model
 
 **Data Source:** Scans all vehicles in cell and filters by owner Steam ID.
 
@@ -395,6 +516,33 @@ Clients: read vehicle:getModData()[key]
 - Re-check conditions on server even if client checked
 - Graceful degradation on missing data
 
+### **5. Hook Pattern (Build 42 Compatible)**
+```lua
+-- Store original function
+local original_isValid = ISUninstallVehiclePart.isValid
+
+-- Replace with wrapped version
+ISUninstallVehiclePart.isValid = function(self)
+    if self.vehicle and not VehicleClaimEnforcement.hasAccess(player, self.vehicle) then
+        return false  -- Gracefully cancel action
+    end
+    return original_isValid(self)  -- Call original
+end
+```
+
+**Purpose:** Intercept vanilla functions while preserving original behavior
+
+### **6. Panel Registry Pattern**
+```lua
+-- Register panel for auto-refresh
+VehicleClaimPanelRegistry.register(panel)
+
+-- On server response, refresh all panels
+VehicleClaimPanelRegistry.refreshAll()
+```
+
+**Purpose:** Keep UI synchronized with server state changes
+
 ---
 
 ## Testing Checklist
@@ -404,7 +552,7 @@ Clients: read vehicle:getModData()[key]
 - ✅ Cannot claim vehicle outside range
 - ✅ Cannot claim already-claimed vehicle
 - ✅ Cannot exceed claim limit
-- ✅ Can release own vehicle
+- ✅ Can release own vehicle from any distance
 - ✅ Cannot release other player's vehicle
 - ✅ Can add/remove allowed players
 - ✅ Allowed players can use vehicle
@@ -413,16 +561,66 @@ Clients: read vehicle:getModData()[key]
 ### **Security**
 - ✅ Server validates all commands
 - ✅ Steam ID mismatches rejected
-- ✅ Proximity checked server-side
+- ✅ Proximity checked server-side for claims
 - ✅ Claim limit enforced server-side
 - ✅ ModData changes require ownership
 
 ### **UI**
 - ✅ Context menu shows correct options
-- ✅ Management panel displays accurate data
+- ✅ Management panel displays accurate data (440px height)
 - ✅ Vehicle list shows all claimed vehicles
-- ✅ Error messages display properly
-- ✅ Panels close if too far from vehicle
+- ✅ Error messages display properly in correct language
+- ✅ "Meus Veículos" option available from self right-click
+
+### **Enforcement (Build 42.13.1)**
+- ✅ Cannot enter claimed vehicle (door blocking)
+- ✅ Cannot open mechanics panel (V key blocked)
+- ✅ Cannot access hood via E key
+- ✅ Cannot install/uninstall parts
+- ✅ Cannot repair parts
+- ✅ Cannot siphon gas or refuel
+- ✅ Cannot smash windows
+- ✅ Cannot hotwire
+- ✅ Cannot lock/unlock doors
+- ✅ Cannot sleep in vehicle
+- ✅ Cannot transfer items from trunk
+- ✅ Context menu stripped of all vehicle actions (except claim)
+- ✅ Radio removal works for allowed players
+
+### **Multi-Language**
+- ✅ Portuguese text displays correctly
+- ✅ English text displays correctly
+- ✅ getText() resolves all translation keys
+- ✅ Error messages localized
+
+---
+
+## Build 42 API Notes
+
+### **Important Classes**
+These are the timed action classes used in Build 42.13.1:
+- `ISOpenVehicleDoor` - Opening vehicle doors
+- `ISInstallVehiclePart` - Installing parts
+- `ISUninstallVehiclePart` - Removing parts
+- `ISRepairVehiclePartAction` - Repairing parts
+- `ISTakeGasFromVehicle` - Siphoning gas
+- `ISAddGasFromPump` - Refueling from pump
+- `ISVehicleMechanics` - Mechanics panel UI
+
+### **Vehicle Type**
+In Build 42, use `BaseVehicle` instead of `IsoVehicle`:
+```lua
+local vehicleObj = instanceof(action.vehicle, "BaseVehicle") and action.vehicle
+```
+
+### **Deferred Hook Initialization**
+Hooks must be initialized via `OnGameStart` event, not at load time:
+```lua
+Events.OnGameStart.Add(function()
+    -- Initialize hooks here after all classes are loaded
+    VehicleClaimEnforcement.initializeHooks()
+end)
+```
 
 ---
 
@@ -444,6 +642,33 @@ When modifying this system, remember:
 3. **Follow command-response pattern** - keep client-server communication clear
 4. **Test with multiple players** - ensure sync works correctly
 5. **Log important events** - use `VehicleClaim.log()` for debugging
+6. **Use `.isValid()` hooks** - never return nil from `.new()` constructors
+7. **Initialize hooks on OnGameStart** - ensure Build 42 classes are loaded first
+
+---
+
+## Known Issues & Solutions
+
+### **Problem: Returning nil from .new() breaks actions**
+**Symptom:** After adding hooks, unrelated actions (like radio removal) stop working.
+
+**Cause:** Returning `nil` from a `.new()` constructor breaks the game's action queue system because it expects a valid action object.
+
+**Solution:** Hook `.isValid()` instead and return `false` to gracefully cancel:
+```lua
+-- ✅ Correct approach
+ISUninstallVehiclePart.isValid = function(self)
+    if not hasAccess(self.vehicle) then return false end
+    return original(self)
+end
+```
+
+### **Problem: Hooks not working on game start**
+**Symptom:** Enforcement doesn't activate until reconnecting.
+
+**Cause:** Hooks are being set before Build 42 classes are fully loaded.
+
+**Solution:** Initialize all hooks in `OnGameStart` event handler.
 
 ---
 

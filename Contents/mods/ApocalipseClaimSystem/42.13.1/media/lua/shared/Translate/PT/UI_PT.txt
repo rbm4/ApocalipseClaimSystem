@@ -28,14 +28,19 @@ UI_PT = {
     -- Context Menu
     UI_VehicleClaim_ContextTitle = "Reivindicacao de Veiculo",
     UI_VehicleClaim_Claim = "Reivindicar %1",
-    UI_VehicleClaim_ClaimVehicle = "Reivindicar Veiculo",
+    UI_VehicleClaim_ClaimVehicle = "Reivindicar %1",
+    UI_VehicleClaim_ClaimVehicleTooltip = "Reivindicar Veiculo",
+    UI_VehicleClaim_ClaimVehicleDescription = "Registre este veiculo como sua propriedade. Outros jogadores nao poderao usa-lo sem permissao.",
     UI_VehicleClaim_ClaimDescription = "Registre este veiculo como sua propriedade. Outros jogadores nao poderao usa-lo sem permissao.",
     UI_VehicleClaim_OwnerLabel = "Proprietario: %1",
     UI_VehicleClaim_ManageAccess = "Gerenciar Acesso",
     UI_VehicleClaim_ReleaseViaPanel = "(Liberar via Gerenciar Acesso)",
+    UI_VehicleClaim_ReleaseClaimTooltip = "Liberar Reivindicacao",
+    UI_VehicleClaim_ReleaseClaimDescription = "Remova sua propriedade deste veiculo. Qualquer pessoa podera reivindicar ou usa-lo.",
     UI_VehicleClaim_YouHaveAccess = "Voce tem acesso",
     UI_VehicleClaim_AccessDenied = "Acesso Negado",
     UI_VehicleClaim_AccessDeniedDescription = "Este veiculo pertence a %1. Voce nao pode usa-lo sem permissao.",
+    UI_VehicleClaim_AccessDeniedContextDescription = "Este veiculo pertence a %1. Voce nao pode usa-lo sem permissao.",
     UI_VehicleClaim_ReleaseClaimTitle = "Liberar Reivindicacao",
     UI_VehicleClaim_ReleaseDescription = "Remova sua propriedade deste veiculo. Qualquer pessoa podera reivindicar ou usa-lo.",
     
@@ -54,4 +59,8 @@ UI_PT = {
     UI_VehicleClaim_PlayerNotFound = "Jogador nao encontrado",
     UI_VehicleClaim_ClaimLimitReached = "Limite de reivindicacoes atingido (%1/%2 veiculos)",
     UI_VehicleClaim_UnknownError = "Erro desconhecido",
+    
+    -- Unloaded vehicle messages
+    UI_VehicleClaim_NotLoaded = "Nao carregado",
+    UI_VehicleClaim_VehicleNotLoaded = "Este veiculo nao esta carregado. Va mais perto para gerenciar.",
 }

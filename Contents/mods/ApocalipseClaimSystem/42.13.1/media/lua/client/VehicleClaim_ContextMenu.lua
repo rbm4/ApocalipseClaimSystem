@@ -276,20 +276,19 @@ function VehicleClaimMenu.onFillWorldObjectContextMenu(playerNum, context, world
     local vehicleName = VehicleClaim.getVehicleName(vehicle)
 
     -- Create submenu for claim options
-    local claimMenu = context:addOption("Vehicle Claim", worldObjects, nil)
+    local claimMenu = context:addOption(getText("UI_VehicleClaim_ContextTitle"), worldObjects, nil)
     local subMenu = ISContextMenu:getNew(context)
     context:addSubMenu(claimMenu, subMenu)
 
     if not isClaimed then
         -- Unclaimed vehicle: show claim option
-        local claimOption = subMenu:addOption("Claim " .. vehicleName, worldObjects, VehicleClaimMenu.onClaimVehicle,
+        local claimOption = subMenu:addOption(getText("UI_VehicleClaim_ClaimVehicle", vehicleName), worldObjects, VehicleClaimMenu.onClaimVehicle,
             player, vehicle)
 
         -- Add tooltip
         local tooltip = ISWorldObjectContextMenu.addToolTip()
-        tooltip:setName("Claim Vehicle")
-        tooltip.description = "Register this vehicle as your property. " ..
-                                  "Other players will not be able to use it without permission."
+        tooltip:setName(getText("UI_VehicleClaim_ClaimVehicleTooltip"))
+        tooltip.description = getText("UI_VehicleClaim_ClaimVehicleDescription")
         claimOption.toolTip = tooltip
 
     else
@@ -297,35 +296,33 @@ function VehicleClaimMenu.onFillWorldObjectContextMenu(playerNum, context, world
         local ownerName = VehicleClaim.getOwnerName(vehicle) or "Unknown"
 
         -- Show owner info
-        local infoOption = subMenu:addOption("Owner: " .. ownerName, nil, nil)
+        local infoOption = subMenu:addOption(getText("UI_VehicleClaim_OwnerLabel", ownerName), nil, nil)
         infoOption.notAvailable = true
 
         if isOwner or isAdmin then
             -- Owner/admin options
-            subMenu:addOption("Manage Access", worldObjects, VehicleClaimMenu.onOpenManagePanel, player, vehicle)
+            subMenu:addOption(getText("UI_VehicleClaim_ManageAccess"), worldObjects, VehicleClaimMenu.onOpenManagePanel, player, vehicle)
 
-            local releaseOption = subMenu:addOption("Release Claim", worldObjects, VehicleClaimMenu.onReleaseClaim,
+            local releaseOption = subMenu:addOption(getText("UI_VehicleClaim_ReleaseClaim"), worldObjects, VehicleClaimMenu.onReleaseClaim,
                 player, vehicle)
             local releaseTip = ISWorldObjectContextMenu.addToolTip()
-            releaseTip:setName("Release Claim")
-            releaseTip.description = "Remove your ownership of this vehicle. " ..
-                                         "Anyone will be able to claim or use it."
+            releaseTip:setName(getText("UI_VehicleClaim_ReleaseClaimTooltip"))
+            releaseTip.description = getText("UI_VehicleClaim_ReleaseClaimDescription")
             releaseOption.toolTip = releaseTip
 
         elseif hasAccess then
             -- Allowed player
-            local accessOption = subMenu:addOption("You have access", nil, nil)
+            local accessOption = subMenu:addOption(getText("UI_VehicleClaim_YouHaveAccess"), nil, nil)
             accessOption.notAvailable = true
 
         else
             -- No access
-            local noAccessOption = subMenu:addOption("Access Denied", nil, nil)
+            local noAccessOption = subMenu:addOption(getText("UI_VehicleClaim_AccessDenied"), nil, nil)
             noAccessOption.notAvailable = true
 
             local tooltip = ISWorldObjectContextMenu.addToolTip()
-            tooltip:setName("Access Denied")
-            tooltip.description = "This vehicle belongs to " .. ownerName .. ". " ..
-                                      "You cannot use it without their permission."
+            tooltip:setName(getText("UI_VehicleClaim_AccessDenied"))
+            tooltip.description = getText("UI_VehicleClaim_AccessDeniedContextDescription", ownerName)
             noAccessOption.toolTip = tooltip
         end
     end

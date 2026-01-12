@@ -49,6 +49,13 @@ VehicleClaim.ERR_CLAIM_LIMIT_REACHED = "claimLimitReached"
 -- Sandbox settings
 VehicleClaim.DEFAULT_MAX_CLAIMS = 3
 
+-- Global registry commands (for claim list sync)
+VehicleClaim.CMD_REQUEST_MY_CLAIMS = "requestMyClaims"
+VehicleClaim.RESP_MY_CLAIMS = "myClaims"
+
+-- Global ModData key for server-side claim registry
+VehicleClaim.GLOBAL_REGISTRY_KEY = "VehicleClaimRegistry"
+
 -----------------------------------------------------------
 -- Utility Functions
 -----------------------------------------------------------
@@ -57,10 +64,48 @@ VehicleClaim.DEFAULT_MAX_CLAIMS = 3
 --- @param vehicle IsoVehicle
 --- @return table|nil claimData
 function VehicleClaim.getClaimData(vehicle)
-    if not vehicle then return nil end
-    local modData = vehicle:getModData()
-    if not modData then return nil end
-    return modData[VehicleClaim.MODDATA_KEY]
+    VehicleClaim.log("getClaimData called")
+    
+    if not vehicle then 
+        VehicleClaim.log("vehicle is nil/false")
+        return nil 
+    end
+    
+    VehicleClaim.log("vehicle type: " .. tostring(type(vehicle)))
+    VehicleClaim.log("vehicle class: " .. tostring(vehicle:getClass() and vehicle:getClass():getName() or "unknown"))
+    
+    -- Check if getModData method exists
+    if not vehicle.getModData then
+        VehicleClaim.log("ERROR: vehicle.getModData method does not exist!")
+        return nil
+    end
+    
+    VehicleClaim.log("getModData method exists, calling it...")
+    
+    local success, modData = pcall(function() return vehicle:getModData() end)
+    
+    if not success then
+        VehicleClaim.log("ERROR: getModData() threw exception: " .. tostring(modData))
+        return nil
+    end
+    
+    VehicleClaim.log("getModData() returned: " .. tostring(modData))
+    VehicleClaim.log("modData type: " .. tostring(type(modData)))
+    
+    if modData == nil then 
+        VehicleClaim.log("modData is nil")
+        return nil 
+    end
+    
+    if not modData then 
+        VehicleClaim.log("modData is falsy (but not nil)")
+        return nil 
+    end
+    
+    local claimData = modData[VehicleClaim.MODDATA_KEY]
+    VehicleClaim.log("claimData: " .. tostring(claimData))
+    
+    return claimData
 end
 
 --- Check if a vehicle is claimed

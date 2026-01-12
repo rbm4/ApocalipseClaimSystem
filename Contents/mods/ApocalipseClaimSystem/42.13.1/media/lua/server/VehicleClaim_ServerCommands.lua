@@ -82,6 +82,95 @@ local function isAdmin(player)
 end
 
 -----------------------------------------------------------
+-- Global Registry Management
+-----------------------------------------------------------
+
+--- Get the global claim registry from server ModData
+--- @return table registry (indexed by vehicleID)
+local function getGlobalRegistry()
+    local globalModData = ModData.getOrCreate(VehicleClaim.GLOBAL_REGISTRY_KEY)
+    if not globalModData.claims then
+        globalModData.claims = {}
+    end
+    return globalModData.claims
+end
+
+--- Add a vehicle to the global registry
+--- @param vehicleID number
+--- @param ownerSteamID string
+--- @param ownerName string
+--- @param vehicleName string
+--- @param x number
+--- @param y number
+local function addToGlobalRegistry(vehicleID, ownerSteamID, ownerName, vehicleName, x, y)
+    local registry = getGlobalRegistry()
+    registry[tostring(vehicleID)] = {
+        vehicleID = vehicleID,
+        ownerSteamID = ownerSteamID,
+        ownerName = ownerName,
+        vehicleName = vehicleName,
+        x = x,
+        y = y,
+        claimTime = VehicleClaim.getCurrentTimestamp()
+    }
+    ModData.transmit(VehicleClaim.GLOBAL_REGISTRY_KEY)
+end
+
+--- Remove a vehicle from the global registry
+--- @param vehicleID number
+local function removeFromGlobalRegistry(vehicleID)
+    local registry = getGlobalRegistry()
+    registry[tostring(vehicleID)] = nil
+    ModData.transmit(VehicleClaim.GLOBAL_REGISTRY_KEY)
+end
+
+--- Update vehicle position in global registry
+--- @param vehicleID number
+--- @param x number
+--- @param y number
+local function updateRegistryPosition(vehicleID, x, y)
+    local registry = getGlobalRegistry()
+    local entry = registry[tostring(vehicleID)]
+    if entry then
+        entry.x = x
+        entry.y = y
+        -- Don't transmit on every position update - let it batch
+    end
+end
+
+--- Get all claims for a specific player from global registry
+--- @param steamID string
+--- @return table claims
+local function getPlayerClaimsFromRegistry(steamID)
+    local registry = getGlobalRegistry()
+    local playerClaims = {}
+    
+    for vehicleIDStr, claimData in pairs(registry) do
+        if claimData.ownerSteamID == steamID then
+            table.insert(playerClaims, claimData)
+        end
+    end
+    
+    return playerClaims
+end
+
+--- Count claims for a player from global registry (more reliable than scanning loaded vehicles)
+--- @param steamID string
+--- @return number
+local function countPlayerClaimsFromRegistry(steamID)
+    local registry = getGlobalRegistry()
+    local count = 0
+    
+    for vehicleIDStr, claimData in pairs(registry) do
+        if claimData.ownerSteamID == steamID then
+            count = count + 1
+        end
+    end
+    
+    return count
+end
+
+-----------------------------------------------------------
 -- ModData Management
 -----------------------------------------------------------
 
@@ -91,6 +180,8 @@ end
 --- @param ownerName string
 local function initializeClaimData(vehicle, ownerSteamID, ownerName)
     local modData = vehicle:getModData()
+    local vehicleID = vehicle:getId()
+    local vehicleName = VehicleClaim.getVehicleName(vehicle)
     
     modData[VehicleClaim.MODDATA_KEY] = {
         [VehicleClaim.OWNER_KEY] = ownerSteamID,
@@ -100,6 +191,9 @@ local function initializeClaimData(vehicle, ownerSteamID, ownerName)
         [VehicleClaim.LAST_SEEN_KEY] = VehicleClaim.getCurrentTimestamp()
     }
     
+    -- Add to global registry
+    addToGlobalRegistry(vehicleID, ownerSteamID, ownerName, vehicleName, vehicle:getX(), vehicle:getY())
+    
     -- Sync to all clients
     vehicle:transmitModData()
 end
@@ -108,7 +202,12 @@ end
 --- @param vehicle IsoVehicle
 local function clearClaimData(vehicle)
     local modData = vehicle:getModData()
+    local vehicleID = vehicle:getId()
+    
     modData[VehicleClaim.MODDATA_KEY] = nil
+    
+    -- Remove from global registry
+    removeFromGlobalRegistry(vehicleID)
     
     vehicle:transmitModData()
 end
@@ -119,6 +218,8 @@ local function updateLastSeen(vehicle)
     local claimData = VehicleClaim.getClaimData(vehicle)
     if claimData then
         claimData[VehicleClaim.LAST_SEEN_KEY] = VehicleClaim.getCurrentTimestamp()
+        -- Also update position in registry
+        updateRegistryPosition(vehicle:getId(), vehicle:getX(), vehicle:getY())
         vehicle:transmitModData()
     end
 end
@@ -174,9 +275,11 @@ local function handleClaimVehicle(player, args)
         return
     end
     
-    -- Check claim limit
-    local canClaim, currentClaims, maxClaims = VehicleClaim.canClaimMore(steamID)
-    if not canClaim then
+    -- Check claim limit (use registry for accurate count)
+    local currentClaims = countPlayerClaimsFromRegistry(steamID)
+    local maxClaims = VehicleClaim.getMaxClaimsPerPlayer()
+    
+    if currentClaims >= maxClaims then
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
             reason = VehicleClaim.ERR_CLAIM_LIMIT_REACHED,
             currentClaims = currentClaims,
@@ -384,6 +487,37 @@ local function handleRequestInfo(player, args)
     sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_VEHICLE_INFO, info)
 end
 
+--- Handle request for all player's claims (from global registry)
+--- @param player IsoPlayer
+--- @param args table
+local function handleRequestMyClaims(player, args)
+    local steamID = args.steamID
+    
+    if not steamID then
+        VehicleClaim.log("RequestMyClaims rejected: missing steamID")
+        return
+    end
+    
+    -- Verify steamID matches requesting player
+    local actualSteamID = VehicleClaim.getPlayerSteamID(player)
+    if actualSteamID ~= steamID then
+        VehicleClaim.log("RequestMyClaims rejected: steamID mismatch")
+        return
+    end
+    
+    -- Get claims from global registry
+    local claims = getPlayerClaimsFromRegistry(steamID)
+    local maxClaims = VehicleClaim.getMaxClaimsPerPlayer()
+    
+    VehicleClaim.log("Sending " .. #claims .. " claims to " .. player:getUsername())
+    
+    sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_MY_CLAIMS, {
+        claims = claims,
+        currentCount = #claims,
+        maxClaims = maxClaims
+    })
+end
+
 -----------------------------------------------------------
 -- Client Command Router
 -----------------------------------------------------------
@@ -412,6 +546,9 @@ function VehicleClaimServer.onClientCommand(module, command, player, args)
         
     elseif command == VehicleClaim.CMD_REQUEST_INFO then
         handleRequestInfo(player, args)
+        
+    elseif command == VehicleClaim.CMD_REQUEST_MY_CLAIMS then
+        handleRequestMyClaims(player, args)
     end
 end
 

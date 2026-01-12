@@ -547,6 +547,110 @@ local function hookSleepInVehicle()
 end
 
 -----------------------------------------------------------
+-- Tow/Trailer Blocking (Pre-Attach Check)
+-----------------------------------------------------------
+
+--- Find nearby vehicles from the rear attachment point of the towing vehicle
+--- @param vehicle BaseVehicle The towing vehicle
+--- @param maxDistance number Maximum distance to search for trailers
+--- @return table Array of nearby vehicles
+local function findNearbyVehicles(vehicle, maxDistance)
+    if not vehicle then return {} end
+    
+    local nearbyVehicles = {}
+    
+    -- Get vehicle position and direction
+    local vx, vy = vehicle:getX(), vehicle:getY()
+    local dir = vehicle:getDir()
+    
+    -- Get the direction vector (normalized) from the IsoDirections
+    local dirVector = dir:ToVector()
+    if not dirVector then 
+        print("[VehicleClaim] ERROR: Could not get direction vector")
+        return nearbyVehicles 
+    end
+    
+    -- Get vehicle dimensions from script to calculate rear offset
+    local script = vehicle:getScript()
+    local rearOffset = 2.5  -- Default offset for rear attachment point
+    
+    if script then
+        local extents = script:getExtents()
+        if extents then
+            -- Use half the vehicle length (Z axis) as the rear offset
+            rearOffset = extents:z() / 2
+            print("[VehicleClaim] Using vehicle extents for rear offset: " .. rearOffset)
+        end
+    end
+    
+    -- Calculate rear attachment point using direction vector
+    -- Direction vector points forward, so negate it to point backward
+    local rearX = vx - (dirVector:getX() * rearOffset)
+    local rearY = vy - (dirVector:getY() * rearOffset)
+    
+    print("[VehicleClaim] Vehicle at (" .. vx .. ", " .. vy .. "), rear point at (" .. rearX .. ", " .. rearY .. ")")
+    
+    local cell = getCell()
+    if not cell then return nearbyVehicles end
+    
+    local vehicles = cell:getVehicles()
+    if not vehicles then return nearbyVehicles end
+    
+    -- Find vehicles near the rear attachment point
+    for i = 0, vehicles:size() - 1 do
+        local nearbyVehicle = vehicles:get(i)
+        if nearbyVehicle and nearbyVehicle ~= vehicle then
+            local nx, ny = nearbyVehicle:getX(), nearbyVehicle:getY()
+            local dist = math.sqrt((rearX - nx)^2 + (rearY - ny)^2)
+            
+            if dist <= maxDistance then
+                table.insert(nearbyVehicles, nearbyVehicle)
+            end
+        end
+    end
+    
+    return nearbyVehicles
+end
+
+local function hookTowTrailer()
+    if not ISVehicleMenu then return end
+    
+    -- Hook attach trailer - PRE-ATTACH enforcement
+    if ISVehicleMenu.onAttachTrailer then
+        local originalAttach = ISVehicleMenu.onAttachTrailer
+        ISVehicleMenu.onAttachTrailer = function(playerObj, vehicleA, attachmentPoint, attachmentA, attachmentB)
+            -- Check if the towing vehicle (vehicleA) is accessible
+            if type(vehicleA) == "userdata" then
+                -- First, check if player has access to the towing vehicle
+                if not VehicleClaimEnforcement.hasAccess(playerObj, vehicleA) then
+                    playerObj:Say(VehicleClaimEnforcement.getDenialMessage(vehicleA))
+                    return
+                end
+                
+                -- Find all nearby vehicles that could potentially be trailers
+                -- Using a 6-tile radius from the rear attachment point
+                local nearbyVehicles = findNearbyVehicles(vehicleA, 8)
+                
+                -- Check if any nearby vehicle is claimed and player lacks access
+                for _, nearbyVehicle in ipairs(nearbyVehicles) do
+                    if not VehicleClaimEnforcement.hasAccess(playerObj, nearbyVehicle) then
+                        -- Found a claimed vehicle nearby that player can't access
+                        playerObj:Say(VehicleClaimEnforcement.getDenialMessage(nearbyVehicle))
+                        print("[VehicleClaim] Blocked trailer attachment - nearby vehicle is claimed")
+                        return
+                    end
+                end
+            end
+            
+            -- All checks passed, allow the attachment
+            return originalAttach(playerObj, vehicleA, attachmentPoint, attachmentA, attachmentB)
+        end
+        print("[VehicleClaim] Hooked ISVehicleMenu.onAttachTrailer (pre-attach enforcement)")
+    end
+    
+end
+
+-----------------------------------------------------------
 -- Initialization
 -----------------------------------------------------------
 
@@ -565,6 +669,7 @@ local function initializeHooks()
     hookLockDoors()
     hookSleepInVehicle()
     hookVehiclePartActions()    -- Block install/uninstall/repair parts
+    hookTowTrailer()            -- Block attach/detach trailer
     
     print("[VehicleClaim] Enforcement hooks initialized")
 end

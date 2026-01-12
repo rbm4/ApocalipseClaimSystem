@@ -44,6 +44,9 @@ function VehicleClaimClient.onServerCommand(module, command, args)
         
     elseif command == VehicleClaim.RESP_VEHICLE_INFO then
         VehicleClaimClient.onVehicleInfo(args)
+        
+    elseif command == VehicleClaim.RESP_MY_CLAIMS then
+        VehicleClaimClient.onMyClaims(args)
     end
 end
 
@@ -143,9 +146,53 @@ function VehicleClaimClient.onVehicleInfo(args)
     end
 end
 
+--- Handle my claims response (for vehicle list panel)
+function VehicleClaimClient.onMyClaims(args)
+    VehicleClaim.log("Received " .. (args.currentCount or 0) .. " claims from server")
+    
+    -- Store the claims data for panels to use
+    VehicleClaimClient.cachedClaims = args.claims or {}
+    VehicleClaimClient.cachedClaimCount = args.currentCount or 0
+    VehicleClaimClient.cachedMaxClaims = args.maxClaims or 5
+    
+    -- Dispatch to callback if one is pending
+    if VehicleClaimClient.pendingClaimsCallback then
+        VehicleClaimClient.pendingClaimsCallback(args)
+        VehicleClaimClient.pendingClaimsCallback = nil
+    end
+    
+    -- Refresh all open panels
+    VehicleClaimClient.refreshOpenPanels()
+end
+
 -----------------------------------------------------------
 -- Client Request Helpers
 -----------------------------------------------------------
+
+--- Request all player's claims from global registry
+--- @param callback function Optional callback to receive response
+function VehicleClaimClient.requestMyClaims(callback)
+    local player = getPlayer()
+    if not player then return end
+    
+    if callback then
+        VehicleClaimClient.pendingClaimsCallback = callback
+    end
+    
+    local args = {
+        steamID = VehicleClaim.getPlayerSteamID(player)
+    }
+    
+    sendClientCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_REQUEST_MY_CLAIMS, args)
+end
+
+--- Get cached claims (useful for panels)
+--- @return table claims, number count, number max
+function VehicleClaimClient.getCachedClaims()
+    return VehicleClaimClient.cachedClaims or {}, 
+           VehicleClaimClient.cachedClaimCount or 0, 
+           VehicleClaimClient.cachedMaxClaims or 5
+end
 
 --- Request vehicle info from server (for UI sync)
 --- @param vehicle IsoVehicle

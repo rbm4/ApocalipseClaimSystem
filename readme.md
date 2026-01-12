@@ -223,6 +223,7 @@ VehicleClaimEnforcement.hasAccess(player, vehicle)
 | `hookHotwire` | `ISVehicleMenu.onHotwire` | Block hotwiring |
 | `hookLockDoors` | `onLockDoor`, `onUnlockDoor` | Block lock/unlock |
 | `hookSleepInVehicle` | `ISVehicleMenu.onSleep` | Block sleeping in vehicle |
+| `hookTowTrailer` | `ISVehicleMenu.onAttachTrailer`, `onDetachTrailer` | Block towing/trailer attach |
 | `onFillWorldObjectContextMenu` | Event handler | Strip ALL context menu options except claim |
 | `onKeyPressed` | Event handler | Block V key for mechanics panel |
 | `onKeyPressedInteract` | Event handler | Block E key for hood interaction |
@@ -262,13 +263,20 @@ ISUI-based panels for vehicle management.
 **Purpose:** List all vehicles claimed by the current player.
 
 **Features:**
-- Shows all player's vehicles with distances
+- Shows ALL player's vehicles, even when not loaded (far away)
 - Display claim count vs. limit (e.g., "3 / 5 veículos")
+- Loaded vehicles show distance, unloaded show last known coordinates
 - Quick access to individual vehicle management via "Gerenciar" button
 - Auto-refresh every 5 seconds
-- Shows vehicle name and model
+- Unloaded vehicles highlighted in yellow
 
-**Data Source:** Scans all vehicles in cell and filters by owner Steam ID.
+**Data Source:** Server-side Global Claim Registry (not local cell scan)
+
+**Why Global Registry?**
+- Vehicles outside loaded area don't exist in `cell:getVehicles()`
+- Server maintains a persistent registry of ALL claims
+- Client requests claim list from server, not local scan
+- Allows players to see and manage vehicles across the entire map
 
 #### **`VehicleClaim_PlayerMenu.lua`**
 **Purpose:** Add "Meus Veículos" option to player self-menu.
@@ -276,6 +284,44 @@ ISUI-based panels for vehicle management.
 **Functionality:**
 - Adds right-click option on self to open vehicle list
 - Entry point for vehicle management
+
+---
+
+## Global Claim Registry
+
+### **Purpose**
+The Global Claim Registry solves the problem of vehicles not appearing in the player's list when they're far away (unloaded). It maintains a server-side record of all claims that persists regardless of vehicle loading state.
+
+### **Storage**
+```lua
+ModData.getOrCreate("VehicleClaimRegistry")
+-- Structure:
+{
+    claims = {
+        ["vehicleID"] = {
+            vehicleID = 12345,
+            ownerSteamID = "76561198...",
+            ownerName = "PlayerName",
+            vehicleName = "Chevalier Dart",
+            x = 10234,
+            y = 8567,
+            claimTime = 12345
+        }
+    }
+}
+```
+
+### **Synchronization**
+- Server updates registry on claim/release
+- Clients request their claims via `CMD_REQUEST_MY_CLAIMS`
+- Server responds with `RESP_MY_CLAIMS` containing all player's claims
+- Vehicle list panel uses this data instead of local cell scan
+
+### **Benefits**
+- ✅ See all vehicles regardless of distance
+- ✅ Track vehicle last known position
+- ✅ Accurate claim count even with unloaded vehicles
+- ✅ Works across server restarts (persisted in ModData)
 
 ---
 
@@ -293,6 +339,7 @@ Defined in `VehicleClaim.CMD_*` constants:
 | `addAllowedPlayer` | Grant access to player | Ownership or admin |
 | `removeAllowedPlayer` | Revoke access | Ownership or admin |
 | `requestVehicleInfo` | Query vehicle details | None (read-only) |
+| `requestMyClaims` | Get all player's claims from registry | Steam ID verification |
 
 #### **Server → Client Responses**
 Defined in `VehicleClaim.RESP_*` constants:
@@ -306,6 +353,7 @@ Defined in `VehicleClaim.RESP_*` constants:
 | `playerRemoved` | Access revoked |
 | `accessDenied` | Permission denied |
 | `vehicleInfo` | Vehicle data response |
+| `myClaims` | List of all player's claims from registry |
 
 ### **Example: Claiming a Vehicle**
 
@@ -568,7 +616,8 @@ VehicleClaimPanelRegistry.refreshAll()
 ### **UI**
 - ✅ Context menu shows correct options
 - ✅ Management panel displays accurate data (440px height)
-- ✅ Vehicle list shows all claimed vehicles
+- ✅ Vehicle list shows all claimed vehicles (even unloaded)
+- ✅ Unloaded vehicles show in yellow with coordinates
 - ✅ Error messages display properly in correct language
 - ✅ "Meus Veículos" option available from self right-click
 
@@ -584,8 +633,17 @@ VehicleClaimPanelRegistry.refreshAll()
 - ✅ Cannot lock/unlock doors
 - ✅ Cannot sleep in vehicle
 - ✅ Cannot transfer items from trunk
+- ✅ Cannot attach trailer to claimed vehicle
+- ✅ Cannot detach trailer from claimed vehicle
 - ✅ Context menu stripped of all vehicle actions (except claim)
 - ✅ Radio removal works for allowed players
+
+### **Global Registry**
+- ✅ Vehicles appear in list even when far away (unloaded)
+- ✅ Claim count accurate for all vehicles
+- ✅ Last known position shows for unloaded vehicles
+- ✅ Registry persists across server restarts
+- ✅ Registry updates on claim/release
 
 ### **Multi-Language**
 - ✅ Portuguese text displays correctly

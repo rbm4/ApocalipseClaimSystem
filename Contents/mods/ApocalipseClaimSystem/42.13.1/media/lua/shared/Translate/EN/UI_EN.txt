@@ -28,14 +28,19 @@ UI_EN = {
     -- Context Menu
     UI_VehicleClaim_ContextTitle = "Vehicle Claim",
     UI_VehicleClaim_Claim = "Claim %1",
-    UI_VehicleClaim_ClaimVehicle = "Claim Vehicle",
+    UI_VehicleClaim_ClaimVehicle = "Claim %1",
+    UI_VehicleClaim_ClaimVehicleTooltip = "Claim Vehicle",
+    UI_VehicleClaim_ClaimVehicleDescription = "Register this vehicle as your property. Other players will not be able to use it without permission.",
     UI_VehicleClaim_ClaimDescription = "Register this vehicle as your property. Other players will not be able to use it without permission.",
     UI_VehicleClaim_OwnerLabel = "Owner: %1",
     UI_VehicleClaim_ManageAccess = "Manage Access",
     UI_VehicleClaim_ReleaseViaPanel = "(Release via Manage Access)",
+    UI_VehicleClaim_ReleaseClaimTooltip = "Release Claim",
+    UI_VehicleClaim_ReleaseClaimDescription = "Remove your ownership of this vehicle. Anyone will be able to claim or use it.",
     UI_VehicleClaim_YouHaveAccess = "You have access",
     UI_VehicleClaim_AccessDenied = "Access Denied",
     UI_VehicleClaim_AccessDeniedDescription = "This vehicle belongs to %1. You cannot use it without their permission.",
+    UI_VehicleClaim_AccessDeniedContextDescription = "This vehicle belongs to %1. You cannot use it without their permission.",
     UI_VehicleClaim_ReleaseClaimTitle = "Release Claim",
     UI_VehicleClaim_ReleaseDescription = "Remove your ownership of this vehicle. Anyone will be able to claim or use it.",
     
@@ -54,4 +59,8 @@ UI_EN = {
     UI_VehicleClaim_PlayerNotFound = "Player not found",
     UI_VehicleClaim_ClaimLimitReached = "Claim limit reached (%1/%2 vehicles)",
     UI_VehicleClaim_UnknownError = "Unknown error",
+    
+    -- Unloaded vehicle messages
+    UI_VehicleClaim_NotLoaded = "Not loaded",
+    UI_VehicleClaim_VehicleNotLoaded = "This vehicle is not loaded. Go closer to manage it.",
 }

@@ -172,6 +172,20 @@ end
 -----------------------------------------------------------
 
 function ISVehicleClaimPanel:refreshData()
+    -- Throttle to prevent excessive reads (1 second minimum interval)
+    local currentTime = getTimestampMs()
+    
+    if self.lastRefreshTime then
+        local elapsed = currentTime - self.lastRefreshTime
+        if elapsed < 9000 then
+            -- Too soon, skip this refresh
+            return
+        end
+    end
+    
+    -- Update last refresh time
+    self.lastRefreshTime = currentTime
+    
     -- Get data directly from vehicle modData (synced by server)
     local claimData = VehicleClaim.getClaimData(self.vehicle)
     
@@ -342,11 +356,22 @@ end
 function ISVehicleClaimPanel:update()
     ISPanel.update(self)
     
-    -- Check if vehicle is still valid
-    if not self.vehicle or not self.vehicle:getSquare() then
-        self:onClose()
-        return
-    end
+    -- Grace period: Don't run checks for the first 30 frames (0.5 seconds)
+    -- if not self.updateCounter then
+    --     self.updateCounter = 0
+    -- end
+    
+    -- self.updateCounter = self.updateCounter + 1
+    
+    -- if self.updateCounter < 90 then
+    --     return
+    -- end
+    
+    -- -- Check if vehicle is still valid
+    -- if not self.vehicle or not self.vehicle:getSquare() then
+    --     self:onClose()
+    --     return
+    -- end
     
     -- Check if player still has management rights
     local steamID = VehicleClaim.getPlayerSteamID(self.player)

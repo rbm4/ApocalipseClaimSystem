@@ -190,6 +190,86 @@ local function countPlayerClaimsFromRegistry(steamID)
 end
 
 -----------------------------------------------------------
+-- Migration/Consolidation System
+-----------------------------------------------------------
+
+--- Scan all loaded vehicles and consolidate claims into the global registry
+--- This handles migration from old versions that only stored data in vehicle ModData
+--- @return number Number of claims consolidated
+local function consolidateClaimsToRegistry()
+    local registry = getGlobalRegistry()
+    local consolidated = 0
+    
+    local vehicles = getCell():getVehicles()
+    if not vehicles then 
+        VehicleClaim.log("[Consolidation] No vehicles found in cell")
+        return 0 
+    end
+    
+    VehicleClaim.log("[Consolidation] Scanning " .. vehicles:size() .. " vehicles for orphaned claims...")
+    
+    for i = 0, vehicles:size() - 1 do
+        local vehicle = vehicles:get(i)
+        if vehicle then
+            local vehicleID = vehicle:getId()
+            local vehicleIDStr = tostring(vehicleID)
+            local claimData = VehicleClaim.getClaimData(vehicle)
+            
+            -- Check if vehicle has claim data but is NOT in registry
+            if claimData and claimData[VehicleClaim.OWNER_KEY] then
+                local inRegistry = registry[vehicleIDStr] ~= nil
+                
+                if not inRegistry then
+                    -- Found orphaned claim - add to registry
+                    local ownerSteamID = claimData[VehicleClaim.OWNER_KEY]
+                    local ownerName = claimData[VehicleClaim.OWNER_NAME_KEY] or "Unknown"
+                    local claimTime = claimData[VehicleClaim.CLAIM_TIME_KEY] or VehicleClaim.getCurrentTimestamp()
+                    local lastSeen = claimData[VehicleClaim.LAST_SEEN_KEY] or VehicleClaim.getCurrentTimestamp()
+                    
+                    registry[vehicleIDStr] = {
+                        vehicleID = vehicleID,
+                        ownerSteamID = ownerSteamID,
+                        ownerName = ownerName,
+                        x = vehicle:getX(),
+                        y = vehicle:getY(),
+                        claimTime = claimTime,
+                        lastSeen = lastSeen
+                    }
+                    
+                    consolidated = consolidated + 1
+                    VehicleClaim.log("[Consolidation] Added vehicle " .. vehicleID .. " owned by " .. ownerName .. " to registry")
+                end
+            end
+        end
+    end
+    
+    if consolidated > 0 then
+        ModData.transmit(VehicleClaim.GLOBAL_REGISTRY_KEY)
+        VehicleClaim.log("[Consolidation] Consolidated " .. consolidated .. " claims into global registry")
+    else
+        VehicleClaim.log("[Consolidation] No orphaned claims found")
+    end
+    
+    return consolidated
+end
+
+--- Periodic consolidation check (runs every 10 minutes)
+--- This catches vehicles that get loaded after server start
+local consolidationTimer = 0
+local CONSOLIDATION_INTERVAL = 600 -- 10 minutes in seconds
+
+local function onEveryTenMinutes()
+    consolidationTimer = consolidationTimer + 1
+    if consolidationTimer >= CONSOLIDATION_INTERVAL then
+        consolidationTimer = 0
+        local count = consolidateClaimsToRegistry()
+        if count > 0 then
+            VehicleClaim.log("[Periodic Consolidation] Found and consolidated " .. count .. " new claims")
+        end
+    end
+end
+
+-----------------------------------------------------------
 -- ModData Management
 -----------------------------------------------------------
 
@@ -529,6 +609,28 @@ local function handleRequestMyClaims(player, args)
     })
 end
 
+--- Handle admin request to consolidate claims
+--- @param player IsoPlayer
+--- @param args table
+local function handleConsolidateClaims(player, args)
+    -- Only admins can trigger manual consolidation
+    if not isAdmin(player) then
+        VehicleClaim.log("ConsolidateClaims rejected: player is not admin")
+        return
+    end
+    
+    VehicleClaim.log("Admin " .. player:getUsername() .. " triggered manual claim consolidation")
+    
+    local count = consolidateClaimsToRegistry()
+    
+    sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CONSOLIDATE_RESULT, {
+        consolidated = count,
+        message = "Consolidated " .. count .. " claims into global registry"
+    })
+    
+    VehicleClaim.log("Manual consolidation completed: " .. count .. " claims")
+end
+
 -----------------------------------------------------------
 -- Client Command Router
 -----------------------------------------------------------
@@ -560,6 +662,9 @@ function VehicleClaimServer.onClientCommand(module, command, player, args)
         
     elseif command == VehicleClaim.CMD_REQUEST_MY_CLAIMS then
         handleRequestMyClaims(player, args)
+        
+    elseif command == VehicleClaim.CMD_CONSOLIDATE_CLAIMS then
+        handleConsolidateClaims(player, args)
     end
 end
 
@@ -657,5 +762,36 @@ if Events.OnEnterVehicle then
         end
     end)
 end
+
+-- Run consolidation on server start (with a delay to ensure all vehicles are loaded)
+Events.OnServerStarted.Add(function()
+    VehicleClaim.log("[Server Started] Scheduling claim consolidation...")
+    -- Delay consolidation by 5 seconds to ensure vehicles are loaded
+    local function runInitialConsolidation()
+        VehicleClaim.log("[Server Started] Running initial claim consolidation...")
+        local count = consolidateClaimsToRegistry()
+        VehicleClaim.log("[Server Started] Initial consolidation complete: " .. count .. " claims migrated")
+    end
+    
+    -- Schedule the consolidation with a delay
+    Events.EveryTenMinutes.Add(function()
+        runInitialConsolidation()
+        Events.EveryTenMinutes.Remove(runInitialConsolidation)
+    end)
+    
+    -- Also trigger immediately after a short delay
+    local delayTimer = 0
+    local function delayedStart()
+        delayTimer = delayTimer + 1
+        if delayTimer >= 5 then -- 5 second delay
+            runInitialConsolidation()
+            Events.OnTick.Remove(delayedStart)
+        end
+    end
+    Events.OnTick.Add(delayedStart)
+end)
+
+-- Periodic consolidation check (every 10 minutes)
+Events.EveryTenMinutes.Add(onEveryTenMinutes)
 
 return VehicleClaimServer

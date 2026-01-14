@@ -54,10 +54,6 @@ VehicleClaim.DEFAULT_MAX_CLAIMS = 3
 VehicleClaim.CMD_REQUEST_MY_CLAIMS = "requestMyClaims"
 VehicleClaim.RESP_MY_CLAIMS = "myClaims"
 
--- Admin commands
-VehicleClaim.CMD_CONSOLIDATE_CLAIMS = "consolidateClaims"
-VehicleClaim.RESP_CONSOLIDATE_RESULT = "consolidateResult"
-
 -- Global ModData key for server-side claim registry
 VehicleClaim.GLOBAL_REGISTRY_KEY = "VehicleClaimRegistry"
 
@@ -66,6 +62,9 @@ VehicleClaim.GLOBAL_REGISTRY_KEY = "VehicleClaimRegistry"
 -----------------------------------------------------------
 
 --- Get the claim data table from a vehicle's modData
+--- NOTE: ModData is a SERVER-MANAGED CACHE synced from the global registry
+--- The registry is the source of truth, ModData is for client-side enforcement
+--- Server automatically syncs ModData when claiming/unclaiming
 --- @param vehicle IsoVehicle
 --- @return table|nil claimData
 function VehicleClaim.getClaimData(vehicle)

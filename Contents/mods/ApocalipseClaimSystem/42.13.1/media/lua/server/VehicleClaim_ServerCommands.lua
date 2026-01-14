@@ -190,88 +190,62 @@ local function countPlayerClaimsFromRegistry(steamID)
 end
 
 -----------------------------------------------------------
--- Migration/Consolidation System
------------------------------------------------------------
-
---- Scan all loaded vehicles and consolidate claims into the global registry
---- This handles migration from old versions that only stored data in vehicle ModData
---- @return number Number of claims consolidated
-local function consolidateClaimsToRegistry()
-    local registry = getGlobalRegistry()
-    local consolidated = 0
-    
-    local vehicles = getCell():getVehicles()
-    if not vehicles then 
-        VehicleClaim.log("[Consolidation] No vehicles found in cell")
-        return 0 
-    end
-    
-    VehicleClaim.log("[Consolidation] Scanning " .. vehicles:size() .. " vehicles for orphaned claims...")
-    
-    for i = 0, vehicles:size() - 1 do
-        local vehicle = vehicles:get(i)
-        if vehicle then
-            local vehicleID = vehicle:getId()
-            local vehicleIDStr = tostring(vehicleID)
-            local claimData = VehicleClaim.getClaimData(vehicle)
-            
-            -- Check if vehicle has claim data but is NOT in registry
-            if claimData and claimData[VehicleClaim.OWNER_KEY] then
-                local inRegistry = registry[vehicleIDStr] ~= nil
-                
-                if not inRegistry then
-                    -- Found orphaned claim - add to registry
-                    local ownerSteamID = claimData[VehicleClaim.OWNER_KEY]
-                    local ownerName = claimData[VehicleClaim.OWNER_NAME_KEY] or "Unknown"
-                    local claimTime = claimData[VehicleClaim.CLAIM_TIME_KEY] or VehicleClaim.getCurrentTimestamp()
-                    local lastSeen = claimData[VehicleClaim.LAST_SEEN_KEY] or VehicleClaim.getCurrentTimestamp()
-                    
-                    registry[vehicleIDStr] = {
-                        vehicleID = vehicleID,
-                        ownerSteamID = ownerSteamID,
-                        ownerName = ownerName,
-                        x = vehicle:getX(),
-                        y = vehicle:getY(),
-                        claimTime = claimTime,
-                        lastSeen = lastSeen
-                    }
-                    
-                    consolidated = consolidated + 1
-                    VehicleClaim.log("[Consolidation] Added vehicle " .. vehicleID .. " owned by " .. ownerName .. " to registry")
-                end
-            end
-        end
-    end
-    
-    if consolidated > 0 then
-        ModData.transmit(VehicleClaim.GLOBAL_REGISTRY_KEY)
-        VehicleClaim.log("[Consolidation] Consolidated " .. consolidated .. " claims into global registry")
-    else
-        VehicleClaim.log("[Consolidation] No orphaned claims found")
-    end
-    
-    return consolidated
-end
-
---- Periodic consolidation check (runs every 10 minutes)
---- This catches vehicles that get loaded after server start
-local consolidationTimer = 0
-local CONSOLIDATION_INTERVAL = 600 -- 10 minutes in seconds
-
-local function onEveryTenMinutes()
-    consolidationTimer = consolidationTimer + 1
-    if consolidationTimer >= CONSOLIDATION_INTERVAL then
-        consolidationTimer = 0
-        local count = consolidateClaimsToRegistry()
-        if count > 0 then
-            VehicleClaim.log("[Periodic Consolidation] Found and consolidated " .. count .. " new claims")
-        end
-    end
-end
-
------------------------------------------------------------
 -- ModData Management
 -----------------------------------------------------------
+
+--- Sync vehicle ModData cache with registry (server authoritative)
+--- Ensures ModData reflects the registry state
+--- @param vehicle IsoVehicle
+local function syncModDataWithRegistry(vehicle)
+    if not vehicle then return end
+    
+    local vehicleID = vehicle:getId()
+    local vehicleIDStr = tostring(vehicleID)
+    local registry = getGlobalRegistry()
+    local registryEntry = registry[vehicleIDStr]
+    local modData = vehicle:getModData()
+    local currentModData = modData[VehicleClaim.MODDATA_KEY]
+    
+    -- CASE 1: Registry has claim but ModData doesn't - sync ModData to registry
+    if registryEntry and not currentModData then
+        modData[VehicleClaim.MODDATA_KEY] = {
+            [VehicleClaim.OWNER_KEY] = registryEntry.ownerSteamID,
+            [VehicleClaim.OWNER_NAME_KEY] = registryEntry.ownerName,
+            [VehicleClaim.ALLOWED_PLAYERS_KEY] = {},
+            [VehicleClaim.CLAIM_TIME_KEY] = registryEntry.claimTime,
+            [VehicleClaim.LAST_SEEN_KEY] = registryEntry.lastSeen
+        }
+        vehicle:transmitModData()
+        VehicleClaim.log("[Sync] Added ModData cache for vehicle " .. vehicleID)
+        return true
+    end
+    
+    -- CASE 2: ModData has claim but registry doesn't - clear orphaned ModData
+    if currentModData and not registryEntry then
+        modData[VehicleClaim.MODDATA_KEY] = nil
+        vehicle:transmitModData()
+        VehicleClaim.log("[Sync] Cleared orphaned ModData for vehicle " .. vehicleID)
+        return true
+    end
+    
+    -- CASE 3: Both exist but owner mismatch - registry wins (sync ModData)
+    if registryEntry and currentModData then
+        if currentModData[VehicleClaim.OWNER_KEY] ~= registryEntry.ownerSteamID then
+            modData[VehicleClaim.MODDATA_KEY] = {
+                [VehicleClaim.OWNER_KEY] = registryEntry.ownerSteamID,
+                [VehicleClaim.OWNER_NAME_KEY] = registryEntry.ownerName,
+                [VehicleClaim.ALLOWED_PLAYERS_KEY] = currentModData[VehicleClaim.ALLOWED_PLAYERS_KEY] or {},
+                [VehicleClaim.CLAIM_TIME_KEY] = registryEntry.claimTime,
+                [VehicleClaim.LAST_SEEN_KEY] = registryEntry.lastSeen
+            }
+            vehicle:transmitModData()
+            VehicleClaim.log("[Sync] Updated ModData to match registry for vehicle " .. vehicleID)
+            return true
+        end
+    end
+    
+    return false -- Already in sync
+end
 
 --- Initialize claim data on a vehicle
 --- @param vehicle IsoVehicle
@@ -281,6 +255,10 @@ local function initializeClaimData(vehicle, ownerSteamID, ownerName)
     local modData = vehicle:getModData()
     local vehicleID = vehicle:getId()
     
+    -- Add to global registry FIRST (source of truth)
+    addToGlobalRegistry(vehicleID, ownerSteamID, ownerName, vehicle:getX(), vehicle:getY())
+    
+    -- Then sync ModData cache
     modData[VehicleClaim.MODDATA_KEY] = {
         [VehicleClaim.OWNER_KEY] = ownerSteamID,
         [VehicleClaim.OWNER_NAME_KEY] = ownerName,
@@ -288,9 +266,6 @@ local function initializeClaimData(vehicle, ownerSteamID, ownerName)
         [VehicleClaim.CLAIM_TIME_KEY] = VehicleClaim.getCurrentTimestamp(),
         [VehicleClaim.LAST_SEEN_KEY] = VehicleClaim.getCurrentTimestamp()
     }
-    
-    -- Add to global registry
-    addToGlobalRegistry(vehicleID, ownerSteamID, ownerName, vehicle:getX(), vehicle:getY())
     
     -- Sync to all clients
     vehicle:transmitModData()
@@ -356,6 +331,9 @@ local function handleClaimVehicle(player, args)
         return
     end
     
+    -- Sync ModData with registry before checking (ensures consistency)
+    syncModDataWithRegistry(vehicle)
+    
     -- Check proximity
     if not VehicleClaim.isWithinRange(player, vehicle) then
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
@@ -364,7 +342,7 @@ local function handleClaimVehicle(player, args)
         return
     end
     
-    -- Check if already claimed
+    -- Check if already claimed (reads from synced ModData)
     if VehicleClaim.isClaimed(vehicle) then
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
             reason = VehicleClaim.ERR_ALREADY_CLAIMED,
@@ -396,7 +374,7 @@ local function handleClaimVehicle(player, args)
     })
 end
 
---- Handle release claim request
+--- Handle release claim request (registry is source of truth, ModData is synced cache)
 --- @param player IsoPlayer
 --- @param args table
 local function handleReleaseClaim(player, args)
@@ -414,30 +392,46 @@ local function handleReleaseClaim(player, args)
         return
     end
     
-    local vehicle = findVehicleByID(vehicleID)
-    if not vehicle then
+    -- SERVER AUTHORITATIVE: Check registry (source of truth)
+    local registry = getGlobalRegistry()
+    local vehicleIDStr = tostring(vehicleID)
+    local registryEntry = registry[vehicleIDStr]
+    
+    -- Verify ownership from registry
+    if not registryEntry then
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
             reason = VehicleClaim.ERR_VEHICLE_NOT_FOUND
         })
         return
     end
     
-    -- Check ownership (or admin override)
-    local ownerID = VehicleClaim.getOwnerID(vehicle)
-    if ownerID ~= steamID and not isAdmin(player) then
+    if registryEntry.ownerSteamID ~= steamID and not isAdmin(player) then
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
             reason = VehicleClaim.ERR_NOT_OWNER
         })
         return
     end
     
-    -- Clear claim
-    clearClaimData(vehicle)
+    -- Remove from registry (source of truth)
+    removeFromGlobalRegistry(vehicleID)
+    VehicleClaim.log("Removed registry entry for vehicle " .. vehicleID)
+    
+    -- If vehicle is loaded, clear ModData cache
+    local vehicle = findVehicleByID(vehicleID)
+    if vehicle then
+        local modData = vehicle:getModData()
+        modData[VehicleClaim.MODDATA_KEY] = nil
+        vehicle:transmitModData()
+        VehicleClaim.log("Cleared ModData cache for vehicle " .. vehicleID)
+    else
+        VehicleClaim.log("Vehicle " .. vehicleID .. " not loaded, ModData will be cleaned on next load")
+    end
     
     VehicleClaim.log("Vehicle released: ID " .. tostring(vehicleID) .. " by " .. player:getUsername())
     
     sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_RELEASE_SUCCESS, {
-        vehicleID = vehicleID
+        vehicleID = vehicleID,
+        wasUnloaded = (vehicle == nil)
     })
 end
 
@@ -561,6 +555,10 @@ local function handleRequestInfo(player, args)
     local vehicle = findVehicleByID(vehicleID)
     if not vehicle then return end
     
+    -- Sync ModData with registry FIRST (ensures client gets authoritative data)
+    syncModDataWithRegistry(vehicle)
+    
+    -- Now read from synced ModData
     local claimData = VehicleClaim.getClaimData(vehicle)
     local info = {
         vehicleID = vehicleID,
@@ -679,9 +677,12 @@ end
 function VehicleClaimServer.onEnterVehicle(player, vehicle, seat)
     if not player or not vehicle then return end
     
+    -- Sync ModData with registry before checking
+    syncModDataWithRegistry(vehicle)
+    
     local steamID = VehicleClaim.getPlayerSteamID(player)
     
-    -- Check access
+    -- Check access (reads from synced ModData)
     if not VehicleClaim.hasAccess(vehicle, steamID) and not isAdmin(player) then
         -- Force exit (server-side enforcement)
         player:setVehicle(nil)
@@ -762,36 +763,5 @@ if Events.OnEnterVehicle then
         end
     end)
 end
-
--- Run consolidation on server start (with a delay to ensure all vehicles are loaded)
-Events.OnServerStarted.Add(function()
-    VehicleClaim.log("[Server Started] Scheduling claim consolidation...")
-    -- Delay consolidation by 5 seconds to ensure vehicles are loaded
-    local function runInitialConsolidation()
-        VehicleClaim.log("[Server Started] Running initial claim consolidation...")
-        local count = consolidateClaimsToRegistry()
-        VehicleClaim.log("[Server Started] Initial consolidation complete: " .. count .. " claims migrated")
-    end
-    
-    -- Schedule the consolidation with a delay
-    Events.EveryTenMinutes.Add(function()
-        runInitialConsolidation()
-        Events.EveryTenMinutes.Remove(runInitialConsolidation)
-    end)
-    
-    -- Also trigger immediately after a short delay
-    local delayTimer = 0
-    local function delayedStart()
-        delayTimer = delayTimer + 1
-        if delayTimer >= 5 then -- 5 second delay
-            runInitialConsolidation()
-            Events.OnTick.Remove(delayedStart)
-        end
-    end
-    Events.OnTick.Add(delayedStart)
-end)
-
--- Periodic consolidation check (every 10 minutes)
-Events.EveryTenMinutes.Add(onEveryTenMinutes)
 
 return VehicleClaimServer

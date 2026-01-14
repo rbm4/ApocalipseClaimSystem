@@ -268,6 +268,15 @@ function VehicleClaimMenu.onFillWorldObjectContextMenu(playerNum, context, world
         return
     end
 
+    -- Request fresh claim status from server (will sync ModData with registry)
+    -- Server uses registry as source of truth and updates ModData cache
+    local vehicleID = vehicle:getId()
+    sendClientCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_REQUEST_INFO, {
+        vehicleID = vehicleID
+    })
+
+    -- Read current state from ModData cache (server will sync it with registry)
+    -- Note: This may show stale data for this menu, but server validates all actions
     local steamID = VehicleClaim.getPlayerSteamID(player)
     local isClaimed = VehicleClaim.isClaimed(vehicle)
     local ownerID = VehicleClaim.getOwnerID(vehicle)

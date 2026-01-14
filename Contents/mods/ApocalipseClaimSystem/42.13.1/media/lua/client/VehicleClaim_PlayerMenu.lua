@@ -26,15 +26,6 @@ function VehicleClaimPlayerMenu.onFillWorldMenu(playerNum, context, worldObjects
     tooltip:setName(getText("UI_VehicleClaim_MyVehicles"))
     tooltip.description = getText("UI_VehicleClaim_ViewManageVehicles")
     option.toolTip = tooltip
-    
-    -- Add admin-only consolidation option
-    if player:getAccessLevel() == "admin" or player:getAccessLevel() == "moderator" then
-        local adminOption = context:addOption("[Admin] Consolidate Claims", player, VehicleClaimPlayerMenu.onConsolidateClaims)
-        local adminTooltip = ISWorldObjectContextMenu.addToolTip()
-        adminTooltip:setName("[Admin] Consolidate Claims")
-        adminTooltip.description = "Scan all vehicles and migrate old claims to the global registry"
-        adminOption.toolTip = adminTooltip
-    end
 end
 
 --- Open the vehicle list panel
@@ -53,17 +44,6 @@ function VehicleClaimPlayerMenu.onOpenVehicleList(playerObj)
     panel:initialise()
     panel:addToUIManager()
     panel:setVisible(true)
-end
-
---- Admin command: Trigger server-side claim consolidation
---- @param playerObj IsoPlayer
-function VehicleClaimPlayerMenu.onConsolidateClaims(playerObj)
-    if not playerObj then return end
-    
-    -- Send command to server
-    sendClientCommand(VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_CONSOLIDATE_CLAIMS, {})
-    
-    playerObj:Say("Consolidating claims...")
 end
 
 -----------------------------------------------------------

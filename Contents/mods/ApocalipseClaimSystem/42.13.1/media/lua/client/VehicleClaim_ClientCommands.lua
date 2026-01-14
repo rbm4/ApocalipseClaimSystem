@@ -49,9 +49,6 @@ function VehicleClaimClient.onServerCommand(module, command, args)
 
     elseif command == VehicleClaim.RESP_MY_CLAIMS then
         VehicleClaimClient.onMyClaims(args)
-
-    elseif command == VehicleClaim.RESP_CONSOLIDATE_RESULT then
-        VehicleClaimClient.onConsolidateResult(args)
     end
 end
 
@@ -171,18 +168,6 @@ function VehicleClaimClient.onMyClaims(args)
     VehicleClaimClient.refreshOpenPanels()
 end
 
---- Handle consolidation result (admin command)
-function VehicleClaimClient.onConsolidateResult(args)
-    local count = args.consolidated or 0
-    local message = args.message or "Consolidation complete"
-    
-    local player = getPlayer()
-    if player then
-        player:Say(message)
-    end
-    
-    VehicleClaim.log("Consolidation result: " .. count .. " claims")
-end
 -----------------------------------------------------------
 -- Client Request Helpers
 -----------------------------------------------------------

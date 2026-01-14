@@ -52,12 +52,12 @@ end
 
 --- Handle successful claim
 function VehicleClaimClient.onClaimSuccess(args)
-    local vehicleName = args.vehicleName or "Vehicle"
+    local vehicleID = args.vehicleID or "Unknown"
     local player = getPlayer()
     
     -- Show notification to player
     if player then
-        player:Say("Successfully claimed " .. vehicleName)
+        player:Say("Successfully claimed vehicle ID: " .. tostring(vehicleID))
     end
     
     -- Refresh any open UI panels
@@ -92,11 +92,11 @@ end
 
 --- Handle successful release
 function VehicleClaimClient.onReleaseSuccess(args)
-    local vehicleName = args.vehicleName or "Vehicle"
+    local vehicleID = args.vehicleID or "Unknown"
     local player = getPlayer()
     
     if player then
-        player:Say("Released claim on " .. vehicleName)
+        player:Say("Released claim on vehicle ID: " .. tostring(vehicleID))
     end
     
     VehicleClaimClient.refreshOpenPanels()

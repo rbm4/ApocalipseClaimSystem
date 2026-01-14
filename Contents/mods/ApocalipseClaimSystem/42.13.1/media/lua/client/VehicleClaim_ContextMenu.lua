@@ -44,11 +44,13 @@ function ISClaimVehicleAction:perform()
     local vehicleID = self.vehicle:getId()
     local steamID = VehicleClaim.getPlayerSteamID(self.character)
     local playerName = self.character:getUsername() or "Unknown"
+    local vehicleName = self.vehicle:getScript():getName()
 
     local args = {
         vehicleID = vehicleID,
         steamID = steamID,
-        playerName = playerName
+        playerName = playerName,
+        vehicleName = vehicleName
     }
 
     sendClientCommand(self.character, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_CLAIM, args)
@@ -273,7 +275,7 @@ function VehicleClaimMenu.onFillWorldObjectContextMenu(playerNum, context, world
     local hasAccess = VehicleClaim.hasAccess(vehicle, steamID)
     local isAdmin = player:getAccessLevel() == "admin" or player:getAccessLevel() == "moderator"
 
-    local vehicleName = VehicleClaim.getVehicleName(vehicle)
+    local vehicleName = VehicleClaim.getVehicleName(vehicle,nil)
 
     -- Create submenu for claim options
     local claimMenu = context:addOption(getText("UI_VehicleClaim_ContextTitle"), worldObjects, nil)

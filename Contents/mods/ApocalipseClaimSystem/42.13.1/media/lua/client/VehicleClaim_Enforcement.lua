@@ -364,15 +364,24 @@ local function hookInventoryTransfer()
     
     local originalIsValid = ISInventoryTransferAction.isValid
     ISInventoryTransferAction.isValid = function(self)
+        -- Get the player/character (try both possible properties)
+        local player = self.character or self.player or getPlayer()
+        if not player then
+            -- No player found, call original validation
+            return originalIsValid(self)
+        end
+        
         -- Check source container
         if self.srcContainer then
             local srcVehicle = nil
-            pcall(function()
+            local success = pcall(function()
                 if self.srcContainer.getVehicle then
                     srcVehicle = self.srcContainer:getVehicle()
                 end
             end)
-            if srcVehicle and not VehicleClaimEnforcement.hasAccess(self.character, srcVehicle) then
+            
+            if success and srcVehicle and not VehicleClaimEnforcement.hasAccess(player, srcVehicle) then
+                player:Say(VehicleClaimEnforcement.getDenialMessage(srcVehicle))
                 return false
             end
         end
@@ -380,12 +389,14 @@ local function hookInventoryTransfer()
         -- Check destination container
         if self.destContainer then
             local destVehicle = nil
-            pcall(function()
+            local success = pcall(function()
                 if self.destContainer.getVehicle then
                     destVehicle = self.destContainer:getVehicle()
                 end
             end)
-            if destVehicle and not VehicleClaimEnforcement.hasAccess(self.character, destVehicle) then
+            
+            if success and destVehicle and not VehicleClaimEnforcement.hasAccess(player, destVehicle) then
+                player:Say(VehicleClaimEnforcement.getDenialMessage(destVehicle))
                 return false
             end
         end

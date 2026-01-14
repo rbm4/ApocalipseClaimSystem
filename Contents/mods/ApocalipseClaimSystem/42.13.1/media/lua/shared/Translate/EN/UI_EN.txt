@@ -11,6 +11,7 @@ UI_EN = {
     
     -- Vehicle Management Panel
     UI_VehicleClaim_ManagementTitle = "Vehicle Claim Management",
+    UI_VehicleClaim_RemoteMode = "Remote",
     UI_VehicleClaim_Vehicle = "Vehicle: %1",
     UI_VehicleClaim_Owner = "Owner: %1",
     UI_VehicleClaim_Claimed = "Claimed: %1",

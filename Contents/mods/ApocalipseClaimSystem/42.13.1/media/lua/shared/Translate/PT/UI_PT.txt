@@ -11,6 +11,7 @@ UI_PT = {
     
     -- Vehicle Management Panel
     UI_VehicleClaim_ManagementTitle = "Gerenciamento de Veiculo",
+    UI_VehicleClaim_RemoteMode = "Remoto",
     UI_VehicleClaim_Vehicle = "Veiculo: %1",
     UI_VehicleClaim_Owner = "Proprietario: %1",
     UI_VehicleClaim_Claimed = "Reivindicado: %1",

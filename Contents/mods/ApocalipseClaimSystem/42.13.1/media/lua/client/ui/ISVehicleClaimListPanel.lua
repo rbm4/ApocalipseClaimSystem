@@ -90,10 +90,10 @@ function ISVehicleClaimListPanel:initialise()
     self:addChild(self.manageButton)
     
     -- Refresh button
-    -- self.refreshButton = ISButton:new(padding * 2 + btnWidth, y, btnWidth, btnHeight, getText("UI_VehicleClaim_Refresh"), self, ISVehicleClaimListPanel.onRefresh)
-    -- self.refreshButton:initialise()
-    -- self.refreshButton:instantiate()
-    -- self:addChild(self.refreshButton)
+    self.refreshButton = ISButton:new(padding * 2 + btnWidth, y, btnWidth, btnHeight, getText("UI_VehicleClaim_Refresh"), self, ISVehicleClaimListPanel.onRefresh)
+    self.refreshButton:initialise()
+    self.refreshButton:instantiate()
+    self:addChild(self.refreshButton)
     y = y + btnHeight + padding
     
     -- Close button
@@ -116,23 +116,31 @@ end
 -----------------------------------------------------------
 
 function ISVehicleClaimListPanel:refreshData()
-    -- Throttle to prevent excessive server requests (5 second minimum interval)
     local currentTime = getTimestampMs()
+    local cacheExpireTime = 30000 -- 1 minute in milliseconds
     
-    if self.lastRefreshTime then
-        local elapsed = currentTime - self.lastRefreshTime
-        if elapsed < 30000 then
-            -- Too soon, skip this request
+    -- Check if we have cached data and it's still fresh
+    if self.lastCacheTime and (currentTime - self.lastCacheTime) < cacheExpireTime then
+        local cachedClaims = self.cachedClaimsData
+        if cachedClaims then
+            self:onClaimsReceived({
+                claims = cachedClaims,
+                currentCount = self.cachedClaimCount,
+                maxClaims = self.cachedMaxCount
+            })
             return
         end
     end
     
-    -- Update last refresh time
-    self.lastRefreshTime = currentTime
-    
-    -- Request claims from server (works for ALL vehicles, even unloaded)
+    -- Cache expired or doesn't exist, request from server
     if VehicleClaimClientCommands then
         VehicleClaimClientCommands.requestMyClaims(function(args)
+            -- Update cache with timestamp
+            self.lastCacheTime = getTimestampMs()
+            self.cachedClaimsData = args.claims
+            self.cachedClaimCount = args.currentCount
+            self.cachedMaxCount = args.maxClaims
+            
             self:onClaimsReceived(args)
         end)
     end
@@ -168,61 +176,26 @@ function ISVehicleClaimListPanel:updateVehicleList()
     self.infoLabel:setName(infoText)
     
     if not self.claimedVehiclesData or #self.claimedVehiclesData == 0 then
-        self.vehicleList:addItem(getText("UI_VehicleClaim_NoVehiclesClaimed"), {vehicleID = nil, isLoaded = false})
+        self.vehicleList:addItem(getText("UI_VehicleClaim_NoVehiclesClaimed"), {vehicleID = nil})
         return
     end
     
-    -- Add vehicles to list (from server data, not local scan)
+    -- Add vehicles to list (from server data only)
     for _, claimData in ipairs(self.claimedVehiclesData) do
-        local vehicleName = claimData.vehicleName or "Unknown Vehicle"
         local vehicleID = claimData.vehicleID
         local x = claimData.x or 0
         local y = claimData.y or 0
         
-        -- Try to find the vehicle if it's loaded (for distance calculation)
-        local loadedVehicle = self:findLoadedVehicle(vehicleID)
-        local statusText = ""
-        
-        if loadedVehicle then
-            -- Vehicle is loaded - show distance
-            local distance = VehicleClaim.getDistance(self.player, loadedVehicle)
-            statusText = string.format(" - %.0fm", distance)
-        else
-            -- Vehicle is not loaded - show last known position
-            statusText = string.format(" - %s (%d, %d)", getText("UI_VehicleClaim_NotLoaded"), math.floor(x), math.floor(y))
-        end
-        
-        local displayText = string.format("%s (ID: %d)%s", vehicleName, vehicleID, statusText)
+        -- Show vehicle ID and last known position
+        local displayText = string.format("Vehicle ID: %d - (%d, %d)", vehicleID, math.floor(x), math.floor(y))
         
         self.vehicleList:addItem(displayText, {
             vehicleID = vehicleID,
-            vehicle = loadedVehicle,  -- May be nil if not loaded
-            name = vehicleName,
             x = x,
             y = y,
-            isLoaded = loadedVehicle ~= nil
+            claimData = claimData
         })
     end
-end
-
---- Try to find a loaded vehicle by ID
-function ISVehicleClaimListPanel:findLoadedVehicle(vehicleID)
-    if not vehicleID then return nil end
-    
-    local cell = getCell()
-    if not cell then return nil end
-    
-    local vehicles = cell:getVehicles()
-    if not vehicles then return nil end
-    
-    for i = 0, vehicles:size() - 1 do
-        local vehicle = vehicles:get(i)
-        if vehicle and vehicle:getId() == vehicleID then
-            return vehicle
-        end
-    end
-    
-    return nil
 end
 
 -----------------------------------------------------------
@@ -250,9 +223,6 @@ function ISVehicleClaimListPanel.drawVehicleListItem(self, y, item, alt)
     if item.item.vehicleID == nil then
         -- "No vehicles" placeholder
         r, g, b = 0.5, 0.5, 0.5
-    elseif not item.item.isLoaded then
-        -- Unloaded vehicle - show in yellow
-        r, g, b = 0.9, 0.8, 0.4
     end
     
     if self.selected == item.index then
@@ -280,34 +250,18 @@ function ISVehicleClaimListPanel:onManageVehicle()
     end
     
     local vehicleID = item.item.vehicleID
-    local vehicle = item.item.vehicle  -- May be nil if not loaded
+    local claimData = item.item.claimData
     
-    -- If vehicle is not loaded, check again (might have loaded since list was generated)
-    if not vehicle then
-        vehicle = self:findLoadedVehicle(vehicleID)
-    end
-    
-    -- If still not loaded, show message that player needs to go closer
-    if not vehicle then
-        self.player:Say(getText("UI_VehicleClaim_VehicleNotLoaded"))
-        return
-    end
-    
-    -- Check if vehicle still exists and is valid
-    if not vehicle:getSquare() then
-        self.player:Say(getText("UI_VehicleClaim_VehicleNotFound"))
-        self:refreshData()
-        return
-    end
-    
-    -- Open management panel for this vehicle
+    -- Open management panel with only vehicleID and claim data (no vehicle reference)
     local panel = ISVehicleClaimPanel:new(
         self.x + 50,
         self.y + 50,
         400,
         440,
         self.player,
-        vehicle
+        nil,  -- No vehicle reference from list panel
+        vehicleID,
+        claimData
     )
     panel:initialise()
     panel:addToUIManager()
@@ -315,7 +269,17 @@ function ISVehicleClaimListPanel:onManageVehicle()
 end
 
 function ISVehicleClaimListPanel:onRefresh()
-    self:refreshData()
+    if VehicleClaimClientCommands then
+        VehicleClaimClientCommands.requestMyClaims(function(args)
+            -- Update cache with timestamp
+            self.lastCacheTime = getTimestampMs()
+            self.cachedClaimsData = args.claims
+            self.cachedClaimCount = args.currentCount
+            self.cachedMaxCount = args.maxClaims
+            
+            self:onClaimsReceived(args)
+        end)
+    end
 end
 
 function ISVehicleClaimListPanel:onClose()
@@ -332,25 +296,25 @@ end
 -- Update Loop
 -----------------------------------------------------------
 
-function ISVehicleClaimListPanel:update()
-    ISPanel.update(self)
+-- function ISVehicleClaimListPanel:update()
+--     ISPanel.update(self)
     
-    -- Auto-refresh every 5 seconds using timestamp-based throttling
-    local currentTime = getTimestampMs()
+--     -- Auto-refresh every 5 seconds using timestamp-based throttling
+--     local currentTime = getTimestampMs()
     
-    if not self.lastUpdateTime then
-        self.lastUpdateTime = currentTime
-        return
-    end
+--     if not self.lastUpdateTime then
+--         self.lastUpdateTime = currentTime
+--         return
+--     end
     
-    local elapsedTime = currentTime - self.lastUpdateTime
+--     local elapsedTime = currentTime - self.lastUpdateTime
     
-    -- Refresh every 5000ms (5 seconds)
-    if elapsedTime >= 5000 then
-        self.lastUpdateTime = currentTime
-        self:refreshData()
-    end
-end
+--     -- Refresh every 5000ms (5 seconds)
+--     if elapsedTime >= 5000 then
+--         self.lastUpdateTime = currentTime
+--         self:refreshData()
+--     end
+-- end
 
 -----------------------------------------------------------
 -- Input Handling

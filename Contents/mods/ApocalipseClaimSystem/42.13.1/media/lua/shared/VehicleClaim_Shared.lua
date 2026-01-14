@@ -14,6 +14,7 @@ VehicleClaim.COMMAND_MODULE = "VehicleClaim"
 VehicleClaim.MODDATA_KEY = "VehicleClaimData"
 VehicleClaim.OWNER_KEY = "ownerSteamID"
 VehicleClaim.OWNER_NAME_KEY = "ownerName"
+VehicleClaim.VEHICLE_NAME_KEY = "vehicleName"
 VehicleClaim.ALLOWED_PLAYERS_KEY = "allowedPlayers"  -- Table: { [steamID] = playerName }
 VehicleClaim.CLAIM_TIME_KEY = "claimTimestamp"
 VehicleClaim.LAST_SEEN_KEY = "lastSeenTimestamp"
@@ -222,14 +223,25 @@ end
 --- Get readable vehicle name
 --- @param vehicle IsoVehicle
 --- @return string
-function VehicleClaim.getVehicleName(vehicle)
-    if not vehicle then return "Unknown Vehicle" end
+function VehicleClaim.getVehicleName(vehicle,vehicleID)
     
+    
+    if vehicleID then
+        local vehicleData = getVehicleById(vehicleID)
+        if vehicleData then
+            return vehicleData:getName()
+        end
+    end
+    
+    if not vehicle then 
+        return "Unknown Vehicle" 
+    end
     local script = vehicle:getScript()
     if script then
         local name = script:getName()
         if name then return name end
     end
+
     
     return "Vehicle"
 end

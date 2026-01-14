@@ -99,16 +99,14 @@ end
 --- @param vehicleID number
 --- @param ownerSteamID string
 --- @param ownerName string
---- @param vehicleName string
 --- @param x number
 --- @param y number
-local function addToGlobalRegistry(vehicleID, ownerSteamID, ownerName, vehicleName, x, y)
+local function addToGlobalRegistry(vehicleID, ownerSteamID, ownerName, x, y)
     local registry = getGlobalRegistry()
     registry[tostring(vehicleID)] = {
         vehicleID = vehicleID,
         ownerSteamID = ownerSteamID,
         ownerName = ownerName,
-        vehicleName = vehicleName,
         x = x,
         y = y,
         claimTime = VehicleClaim.getCurrentTimestamp()
@@ -147,7 +145,28 @@ local function getPlayerClaimsFromRegistry(steamID)
     
     for vehicleIDStr, claimData in pairs(registry) do
         if claimData.ownerSteamID == steamID then
-            table.insert(playerClaims, claimData)
+            -- Create a copy of the claim data
+            local claimEntry = {
+                vehicleID = claimData.vehicleID,
+                ownerSteamID = claimData.ownerSteamID,
+                ownerName = claimData.ownerName,
+                x = claimData.x,
+                y = claimData.y,
+                claimTime = claimData.claimTime,
+                lastSeen = claimData.lastSeen,
+                allowedPlayers = {}
+            }
+            
+            -- Try to get allowed players from the loaded vehicle if available
+            local vehicle = findVehicleByID(claimData.vehicleID)
+            if vehicle then
+                local vehicleClaimData = VehicleClaim.getClaimData(vehicle)
+                if vehicleClaimData then
+                    claimEntry.allowedPlayers = vehicleClaimData[VehicleClaim.ALLOWED_PLAYERS_KEY] or {}
+                end
+            end
+            
+            table.insert(playerClaims, claimEntry)
         end
     end
     
@@ -181,7 +200,6 @@ end
 local function initializeClaimData(vehicle, ownerSteamID, ownerName)
     local modData = vehicle:getModData()
     local vehicleID = vehicle:getId()
-    local vehicleName = VehicleClaim.getVehicleName(vehicle)
     
     modData[VehicleClaim.MODDATA_KEY] = {
         [VehicleClaim.OWNER_KEY] = ownerSteamID,
@@ -192,7 +210,7 @@ local function initializeClaimData(vehicle, ownerSteamID, ownerName)
     }
     
     -- Add to global registry
-    addToGlobalRegistry(vehicleID, ownerSteamID, ownerName, vehicleName, vehicle:getX(), vehicle:getY())
+    addToGlobalRegistry(vehicleID, ownerSteamID, ownerName, vehicle:getX(), vehicle:getY())
     
     -- Sync to all clients
     vehicle:transmitModData()
@@ -290,14 +308,11 @@ local function handleClaimVehicle(player, args)
     
     -- All validations passed - create claim
     initializeClaimData(vehicle, steamID, playerName or player:getUsername())
-    
-    local vehicleName = VehicleClaim.getVehicleName(vehicle)
-    VehicleClaim.log("Vehicle claimed: " .. vehicleName .. " by " .. playerName)
+    VehicleClaim.log("Vehicle claimed: ID " .. tostring(vehicleID) .. " by " .. playerName)
     
     -- Notify client
     sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_SUCCESS, {
-        vehicleID = vehicleID,
-        vehicleName = vehicleName
+        vehicleID = vehicleID
     })
 end
 
@@ -336,16 +351,13 @@ local function handleReleaseClaim(player, args)
         return
     end
     
-    local vehicleName = VehicleClaim.getVehicleName(vehicle)
-    
     -- Clear claim
     clearClaimData(vehicle)
     
-    VehicleClaim.log("Vehicle released: " .. vehicleName .. " by " .. player:getUsername())
+    VehicleClaim.log("Vehicle released: ID " .. tostring(vehicleID) .. " by " .. player:getUsername())
     
     sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_RELEASE_SUCCESS, {
-        vehicleID = vehicleID,
-        vehicleName = vehicleName
+        vehicleID = vehicleID
     })
 end
 
@@ -472,7 +484,6 @@ local function handleRequestInfo(player, args)
     local claimData = VehicleClaim.getClaimData(vehicle)
     local info = {
         vehicleID = vehicleID,
-        vehicleName = VehicleClaim.getVehicleName(vehicle),
         isClaimed = VehicleClaim.isClaimed(vehicle)
     }
     

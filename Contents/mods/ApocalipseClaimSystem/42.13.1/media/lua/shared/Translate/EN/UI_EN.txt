@@ -64,4 +64,22 @@ UI_EN = {
     -- Unloaded vehicle messages
     UI_VehicleClaim_NotLoaded = "Not loaded",
     UI_VehicleClaim_VehicleNotLoaded = "This vehicle is not loaded. Go closer to manage it.",
+    
+    -- Mechanics UI
+    UI_VehicleClaim_MechanicsTitle = "Vehicle Ownership",
+    UI_VehicleClaim_VehicleIDLoading = "Vehicle ID: Loading...",
+    UI_VehicleClaim_VehicleIDLabel = "Vehicle ID: %1",
+    UI_VehicleClaim_StatusUnclaimed = "Status: Unclaimed",
+    UI_VehicleClaim_StatusClaimed = "Status: Claimed",
+    UI_VehicleClaim_AvailableToClaim = "This vehicle is available to claim",
+    UI_VehicleClaim_ClaimButton = "Claim This Vehicle",
+    UI_VehicleClaim_ReleaseButton = "Release Claim",
+    UI_VehicleClaim_OwnerYou = "Owner: You",
+    UI_VehicleClaim_YouHaveAccessBrackets = "(You have access)",
+    UI_VehicleClaim_Unknown = "Unknown",
+    UI_VehicleClaim_LastSeenDays = "Last seen: %1 days ago",
+    UI_VehicleClaim_LastSeenHours = "Last seen: %1 hours ago",
+    UI_VehicleClaim_LastSeenRecently = "Last seen: Recently",
+    UI_VehicleClaim_AccessGranted = "Access: Granted",
+    UI_VehicleClaim_NoAccess = "Access: Denied",
 }

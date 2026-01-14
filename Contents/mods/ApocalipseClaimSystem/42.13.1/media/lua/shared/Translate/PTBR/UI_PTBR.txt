@@ -64,4 +64,22 @@ UI_PT = {
     -- Unloaded vehicle messages
     UI_VehicleClaim_NotLoaded = "Nao carregado",
     UI_VehicleClaim_VehicleNotLoaded = "Este veiculo nao esta carregado. Va mais perto para gerenciar.",
+    
+    -- Mechanics UI
+    UI_VehicleClaim_MechanicsTitle = "Propriedade do Veiculo",
+    UI_VehicleClaim_VehicleIDLoading = "ID do Veiculo: Carregando...",
+    UI_VehicleClaim_VehicleIDLabel = "ID do Veiculo: %1",
+    UI_VehicleClaim_StatusUnclaimed = "Status: Nao reivindicado",
+    UI_VehicleClaim_StatusClaimed = "Status: Reivindicado",
+    UI_VehicleClaim_AvailableToClaim = "Este veiculo esta disponivel para reivindicacao",
+    UI_VehicleClaim_ClaimButton = "Reivindicar Este Veiculo",
+    UI_VehicleClaim_ReleaseButton = "Liberar Reivindicacao",
+    UI_VehicleClaim_OwnerYou = "Proprietario: Voce",
+    UI_VehicleClaim_YouHaveAccessBrackets = "(Voce tem acesso)",
+    UI_VehicleClaim_Unknown = "Desconhecido",
+    UI_VehicleClaim_LastSeenDays = "Visto pela ultima vez: ha %1 dias",
+    UI_VehicleClaim_LastSeenHours = "Visto pela ultima vez: ha %1 horas",
+    UI_VehicleClaim_LastSeenRecently = "Visto pela ultima vez: Recentemente",
+    UI_VehicleClaim_AccessGranted = "Acesso: Concedido",
+    UI_VehicleClaim_NoAccess = "Acesso: Negado",
 }

@@ -6,6 +6,7 @@
 
 require "ISUI/ISPanel"
 require "shared/VehicleClaim_Shared"
+require "client/VehicleClaim_ContextMenu"
 
 -----------------------------------------------------------
 -- Vehicle Claim Info Panel (embedded in mechanics window)
@@ -36,13 +37,13 @@ function ISVehicleClaimInfoPanel:createChildren()
     local buttonHeight = 25
     
     -- Title
-    self.titleLabel = ISLabel:new(padding, yOffset, 20, "Vehicle Ownership", 1, 1, 1, 1, UIFont.Medium, true)
+    self.titleLabel = ISLabel:new(padding, yOffset, 20, getText("UI_VehicleClaim_MechanicsTitle"), 1, 1, 1, 1, UIFont.Medium, true)
     self.titleLabel:initialise()
     self:addChild(self.titleLabel)
     yOffset = yOffset + 25
     
     -- Vehicle ID (will be updated in prerender when vehicle is available)
-    self.vehicleIDLabel = ISLabel:new(padding, yOffset, 20, "Vehicle ID: Loading...", 0.5, 0.5, 0.5, 1, UIFont.Small, true)
+    self.vehicleIDLabel = ISLabel:new(padding, yOffset, 20, getText("UI_VehicleClaim_VehicleIDLoading"), 0.5, 0.5, 0.5, 1, UIFont.Small, true)
     self.vehicleIDLabel:initialise()
     self:addChild(self.vehicleIDLabel)
     yOffset = yOffset + 20
@@ -60,7 +61,7 @@ function ISVehicleClaimInfoPanel:createChildren()
     self.ownerLabel:initialise()
     self:addChild(self.ownerLabel)
     yOffset = yOffset + 20
-    
+
     self.lastSeenLabel = ISLabel:new(padding, yOffset, 20, "", 0.7, 0.7, 0.7, 1, UIFont.Small, true)
     self.lastSeenLabel:initialise()
     self:addChild(self.lastSeenLabel)
@@ -74,7 +75,7 @@ function ISVehicleClaimInfoPanel:createChildren()
     yOffset = yOffset + buttonHeight + 5
     
     -- Manage button (only shown if owner)
-    self.manageButton = ISButton:new(padding, yOffset, self.width - (padding * 2), buttonHeight, "Manage Access", self, ISVehicleClaimInfoPanel.onManageButton)
+    self.manageButton = ISButton:new(padding, yOffset, self.width - (padding * 2), buttonHeight, getText("UI_VehicleClaim_ManageAccess"), self, ISVehicleClaimInfoPanel.onManageButton)
     self.manageButton:initialise()
     self.manageButton.borderColor = {r=1, g=1, b=1, a=0.3}
     self:addChild(self.manageButton)
@@ -104,12 +105,12 @@ function ISVehicleClaimInfoPanel:updateInfo()
     
     if not isClaimed then
         -- Unclaimed vehicle
-        self.statusLabel:setName("Status: Unclaimed")
+        self.statusLabel:setName(getText("UI_VehicleClaim_StatusUnclaimed"))
         self.statusLabel:setColor(0.5, 1, 0.5)
         self.ownerLabel:setName("")
-        self.lastSeenLabel:setName("This vehicle is available to claim")
+        self.lastSeenLabel:setName(getText("UI_VehicleClaim_AvailableToClaim"))
         
-        self.actionButton:setTitle("Claim This Vehicle")
+        self.actionButton:setTitle(getText("UI_VehicleClaim_ClaimButton"))
         self.actionButton:setVisible(true)
         self.actionButton.backgroundColor = {r=0.2, g=0.6, b=0.2, a=1}
         
@@ -117,19 +118,17 @@ function ISVehicleClaimInfoPanel:updateInfo()
         
     else
         -- Claimed vehicle
-        self.statusLabel:setName("Status: Claimed")
+        self.statusLabel:setName(getText("UI_VehicleClaim_StatusClaimed"))
         self.statusLabel:setColor(1, 0.8, 0.2)
         
         if isOwner then
-            self.ownerLabel:setName("Owner: You")
+            self.ownerLabel:setName(getText("UI_VehicleClaim_OwnerYou"))
             self.ownerLabel:setColor(0.5, 1, 0.5)
         elseif hasAccess then
-            self.ownerLabel:setName("Owner: " .. (ownerName or "Unknown"))
+            self.ownerLabel:setName(getText("UI_VehicleClaim_OwnerLabel", ownerName or getText("UI_VehicleClaim_Unknown")) .. " " .. getText("UI_VehicleClaim_AccessGranted"))
             self.ownerLabel:setColor(0.5, 0.8, 1)
-            self.lastSeenLabel:setName("(You have access)")
-            self.lastSeenLabel:setColor(0.5, 0.8, 1)
         else
-            self.ownerLabel:setName("Owner: " .. (ownerName or "Unknown"))
+            self.ownerLabel:setName(getText("UI_VehicleClaim_OwnerLabel", ownerName or getText("UI_VehicleClaim_Unknown")) .. " " .. getText("UI_VehicleClaim_NoAccess"))
             self.ownerLabel:setColor(1, 0.5, 0.5)
         end
         
@@ -142,18 +141,18 @@ function ISVehicleClaimInfoPanel:updateInfo()
                 local hours = math.floor(timeSince / 3600)
                 if hours > 24 then
                     local days = math.floor(hours / 24)
-                    self.lastSeenLabel:setName("Last seen: " .. days .. " days ago")
+                    self.lastSeenLabel:setName(getText("UI_VehicleClaim_LastSeenDays", days))
                 elseif hours > 0 then
-                    self.lastSeenLabel:setName("Last seen: " .. hours .. " hours ago")
+                    self.lastSeenLabel:setName(getText("UI_VehicleClaim_LastSeenHours", hours))
                 else
-                    self.lastSeenLabel:setName("Last seen: Recently")
+                    self.lastSeenLabel:setName(getText("UI_VehicleClaim_LastSeenRecently"))
                 end
             end
         end
         
         -- Action button
         if isOwner or isAdmin then
-            self.actionButton:setTitle("Release Claim")
+            self.actionButton:setTitle(getText("UI_VehicleClaim_ReleaseButton"))
             self.actionButton:setVisible(true)
             self.actionButton.backgroundColor = {r=0.8, g=0.3, b=0.3, a=1}
         else
@@ -172,28 +171,16 @@ end
 function ISVehicleClaimInfoPanel:onActionButton()
     if not self.vehicle then return end
     
-    local steamID = VehicleClaim.getPlayerSteamID(self.player)
     local isClaimed = VehicleClaim.isClaimed(self.vehicle)
     
     if not isClaimed then
-        -- Claim vehicle
-        local vehicleID = self.vehicle:getId()
-        local playerName = self.player:getUsername()
-        
-        sendClientCommand(self.player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_CLAIM, {
-            vehicleID = vehicleID,
-            steamID = steamID,
-            playerName = playerName
-        })
-        
+        -- Claim vehicle - use timed action
+        local action = ISClaimVehicleAction:new(self.player, self.vehicle, VehicleClaim.CLAIM_TIME_TICKS)
+        ISTimedActionQueue.add(action)
     else
-        -- Release claim
-        local vehicleID = self.vehicle:getId()
-        
-        sendClientCommand(self.player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_RELEASE, {
-            vehicleID = vehicleID,
-            steamID = steamID
-        })
+        -- Release claim - use timed action
+        local action = ISReleaseVehicleClaimAction:new(self.player, self.vehicle, VehicleClaim.CLAIM_TIME_TICKS / 2)
+        ISTimedActionQueue.add(action)
     end
     
     -- Close mechanics UI after action
@@ -205,8 +192,12 @@ end
 function ISVehicleClaimInfoPanel:onManageButton()
     if not self.vehicle then return end
     
-    -- Open the manage access panel
-    local panel = ISVehicleClaimPanel:new(100, 100, 400, 300, self.vehicle, self.player)
+    -- Get vehicle ID and claim data
+    local vehicleID = self.vehicle:getId()
+    local claimData = VehicleClaim.getClaimData(self.vehicle)
+    
+    -- Open the manage access panel with correct parameter order
+    local panel = ISVehicleClaimPanel:new(100, 100, 400, 500, self.player, self.vehicle, vehicleID, claimData)
     panel:initialise()
     panel:addToUIManager()
     
@@ -219,16 +210,34 @@ end
 function ISVehicleClaimInfoPanel:update()
     ISPanel.update(self)
     
-    -- Get vehicle reference from parent if we don't have it
-    if not self.vehicle and self.parent and self.parent.vehicle then
-        self.vehicle = self.parent.vehicle
-        print("[VehicleClaim] Got vehicle reference from parent: " .. tostring(self.vehicle:getId()))
+    -- Get vehicle reference from parent if we don't have it, or if parent's vehicle changed
+    if self.parent and self.parent.vehicle then
+        local parentVehicleID = self.parent.vehicle:getId()
+        local currentVehicleID = self.vehicle and self.vehicle:getId() or nil
+        
+        -- Detect vehicle change
+        if currentVehicleID ~= parentVehicleID then
+            print("[VehicleClaim] Vehicle changed from " .. tostring(currentVehicleID) .. " to " .. tostring(parentVehicleID))
+            self.vehicle = self.parent.vehicle
+            self.dataRequested = false  -- Reset data request flag for new vehicle
+            self.lastUpdateTime = 0  -- Force immediate update
+            
+            -- Request fresh data for new vehicle
+            local vehicleID = self.vehicle:getId()
+            sendClientCommand(self.player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_REQUEST_INFO, {
+                vehicleID = vehicleID
+            })
+            self.dataRequested = true
+        elseif not self.vehicle then
+            self.vehicle = self.parent.vehicle
+            print("[VehicleClaim] Got vehicle reference from parent: " .. tostring(self.vehicle:getId()))
+        end
     end
     
     -- Update vehicle ID label if vehicle is available
     if self.vehicle and self.vehicleIDLabel then
         local vehicleID = tostring(self.vehicle:getId())
-        local currentText = "Vehicle ID: " .. vehicleID
+        local currentText = getText("UI_VehicleClaim_VehicleIDLabel", vehicleID)
         if self.vehicleIDLabel:getName() ~= currentText then
             self.vehicleIDLabel:setName(currentText)
         end
@@ -236,11 +245,12 @@ function ISVehicleClaimInfoPanel:update()
     
     -- Simple throttled updates: check every 2 seconds
     local currentTime = os.time()
-    if not self.lastUpdateTime or (currentTime - self.lastUpdateTime) >= 2 then
+    if not self.lastUpdateTime or (currentTime - self.lastUpdateTime) >= 1 then
         self:updateInfo()
         self.lastUpdateTime = currentTime
     end
 end
+
 
 function ISVehicleClaimInfoPanel:prerender()
     ISPanel.prerender(self)
@@ -250,21 +260,6 @@ end
 
 function ISVehicleClaimInfoPanel:render()
     ISPanel.render(self)
-end
-
-function ISVehicleClaimInfoPanel:isMouseOver()
-    -- Override to always check mouse position, even outside parent bounds
-    if not self:getIsVisible() then
-        return false
-    end
-    
-    local mouseX = getMouseX()
-    local mouseY = getMouseY()
-    local absX = self:getAbsoluteX()
-    local absY = self:getAbsoluteY()
-    
-    return mouseX >= absX and mouseX <= absX + self.width and 
-           mouseY >= absY and mouseY <= absY + self.height
 end
 
 -----------------------------------------------------------
@@ -283,6 +278,7 @@ local function integrateWithMechanicsUI()
     -- Store original methods
     local original_createChildren = ISVehicleMechanics.createChildren
     local original_prerender = ISVehicleMechanics.prerender
+    local original_onResize = ISVehicleMechanics.onResize
     local original_onMouseDown = ISVehicleMechanics.onMouseDown
     local original_onMouseUp = ISVehicleMechanics.onMouseUp
     local original_onMouseMove = ISVehicleMechanics.onMouseMove
@@ -294,11 +290,18 @@ local function integrateWithMechanicsUI()
         -- Call original
         original_createChildren(self)
         
-        -- Add our claim info panel at the bottom of the mechanics window
+        -- Increase window height to fit our panel
+        local originalHeight = self.height
+        self:setHeight(originalHeight+180)
+        
+        print("[VehicleClaim] Increased mechanics window height from " .. originalHeight .. " to " .. self.height)
+
+        
+        -- Add our claim info panel at the bottom of the extended window
         local panelHeight = 180
-        local panelWidth = 250
-        local panelX = -250
-        local panelY = self.height - panelHeight - 10
+        local panelWidth = 300
+        local panelX = self.width - panelWidth - 10  -- Right side with padding
+        local panelY = self.height - (panelHeight*2) - 10  -- Bottom of window
         
         print("[VehicleClaim] Creating claim panel at x=" .. panelX .. " y=" .. panelY .. " w=" .. panelWidth .. " h=" .. panelHeight)
         
@@ -309,7 +312,7 @@ local function integrateWithMechanicsUI()
         
         print("[VehicleClaim] Claim info panel added to vehicle mechanics window")
     end
-    
+
     -- Hook prerender to sync data when window opens
     ISVehicleMechanics.prerender = function(self)
         original_prerender(self)
@@ -325,43 +328,6 @@ local function integrateWithMechanicsUI()
                 self.claimInfoPanel.dataRequested = true
                 print("[VehicleClaim] Requested fresh claim data for vehicle " .. vehicleID)
             end
-        end
-    end
-    
-    -- Hook mouse events to forward to claim panel even if outside parent bounds
-    ISVehicleMechanics.onMouseDown = function(self, x, y)
-        -- Check if claim panel exists and if mouse is over it
-        if self.claimInfoPanel and self.claimInfoPanel:isMouseOver() then
-            self.claimInfoPanel:onMouseDown(x - self.claimInfoPanel:getAbsoluteX(), y - self.claimInfoPanel:getAbsoluteY())
-            return
-        end
-        -- Otherwise call original
-        if original_onMouseDown then
-            original_onMouseDown(self, x, y)
-        end
-    end
-    
-    ISVehicleMechanics.onMouseUp = function(self, x, y)
-        -- Check if claim panel exists and if mouse is over it
-        if self.claimInfoPanel and self.claimInfoPanel:isMouseOver() then
-            self.claimInfoPanel:onMouseUp(x - self.claimInfoPanel:getAbsoluteX(), y - self.claimInfoPanel:getAbsoluteY())
-            return
-        end
-        -- Otherwise call original
-        if original_onMouseUp then
-            original_onMouseUp(self, x, y)
-        end
-    end
-    
-    ISVehicleMechanics.onMouseMove = function(self, dx, dy)
-        -- Check if claim panel exists and if mouse is over it
-        if self.claimInfoPanel and self.claimInfoPanel:isMouseOver() then
-            self.claimInfoPanel:onMouseMove(dx, dy)
-            return
-        end
-        -- Otherwise call original
-        if original_onMouseMove then
-            original_onMouseMove(self, dx, dy)
         end
     end
     

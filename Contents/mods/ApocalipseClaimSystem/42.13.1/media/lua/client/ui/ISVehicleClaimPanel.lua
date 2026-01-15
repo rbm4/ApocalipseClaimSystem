@@ -8,6 +8,7 @@ require "ISUI/ISLabel"
 require "ISUI/ISTextEntryBox"
 require "ISUI/ISScrollingListBox"
 require "shared/VehicleClaim_Shared"
+require "client/VehicleClaim_ContextMenu"
 
 ISVehicleClaimPanel = ISPanel:derive("ISVehicleClaimPanel")
 
@@ -15,14 +16,14 @@ ISVehicleClaimPanel = ISPanel:derive("ISVehicleClaimPanel")
 -- Constructor
 -----------------------------------------------------------
 
-function ISVehicleClaimPanel:new(x, y, width, height, player, vehicle, vehicleID, claimData)
+function ISVehicleClaimPanel:new(x, y, width, height, player, vehicle, vehicleHash, claimData)
     local o = ISPanel:new(x, y, width, height)
     setmetatable(o, self)
     self.__index = self
 
     o.player = player
     o.vehicle = vehicle -- Optional: only provided when opened from context menu
-    o.vehicleID = vehicleID or (vehicle and vehicle:getId())
+    o.vehicleHash = vehicleHash or (vehicle and VehicleClaim.getOrCreateVehicleHash(vehicle))
     o.cachedClaimData = claimData -- Pre-loaded claim data from server
     
 
@@ -75,7 +76,7 @@ function ISVehicleClaimPanel:initialise()
     y = y + labelHeight + padding
 
     -- Vehicle name
-    local vehicleName = tostring(self.vehicleID) or "Unknown"
+    local vehicleName = tostring(self.vehicleHash) or "Unknown"
     self.vehicleLabel = ISLabel:new(padding, y, labelHeight, getText("UI_VehicleClaim_Vehicle", vehicleName), 0.9, 0.9,
         0.9, 1, UIFont.Small, true)
     self.vehicleLabel:initialise()
@@ -333,7 +334,7 @@ function ISVehicleClaimPanel:onAddPlayer()
         return
     end
 
-    -- Send request to server (always use vehicleID)
+    -- Send request to server (always use vehicleHash)
     if VehicleClaimClientCommands then
         if self.vehicle then
             -- Called from context menu with vehicle reference
@@ -341,7 +342,7 @@ function ISVehicleClaimPanel:onAddPlayer()
         else
             -- Called from list panel without vehicle reference
             local args = {
-                vehicleID = self.vehicleID,
+                vehicleHash = self.vehicleHash,
                 steamID = VehicleClaim.getPlayerSteamID(self.player),
                 targetPlayerName = playerName
             }
@@ -366,7 +367,7 @@ function ISVehicleClaimPanel:onRemovePlayer()
 
     local targetSteamID = item.item.steamID
 
-    -- Send request to server (always use vehicleID)
+    -- Send request to server (always use vehicleHash)
     if VehicleClaimClientCommands then
         if self.vehicle then
             -- Called from context menu with vehicle reference
@@ -374,7 +375,7 @@ function ISVehicleClaimPanel:onRemovePlayer()
         else
             -- Called from list panel without vehicle reference
             local args = {
-                vehicleID = self.vehicleID,
+                vehicleHash = self.vehicleHash,
                 steamID = VehicleClaim.getPlayerSteamID(self.player),
                 targetSteamID = targetSteamID
             }
@@ -393,16 +394,22 @@ end
 
 function ISVehicleClaimPanel:onReleaseConfirm(button)
     if button.internal == "YES" then
-        -- Send release command directly (no timed action needed)
-        local vehicleID = self.vehicleID or (self.vehicle and self.vehicle:getId())
-        local steamID = VehicleClaim.getPlayerSteamID(self.player)
+        -- Use timed action for release (consistent with context menu)
+        if self.vehicle then
+            local action = ISReleaseVehicleClaimAction:new(self.player, self.vehicle, VehicleClaim.CLAIM_TIME_TICKS / 2)
+            ISTimedActionQueue.add(action)
+        else
+            -- Fallback: If no vehicle reference, send command directly
+            local vehicleHash = self.vehicleHash
+            local steamID = VehicleClaim.getPlayerSteamID(self.player)
 
-        local args = {
-            vehicleID = vehicleID,
-            steamID = steamID
-        }
+            local args = {
+                vehicleHash = vehicleHash,
+                steamID = steamID
+            }
 
-        sendClientCommand(self.player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_RELEASE, args)
+            sendClientCommand(self.player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_RELEASE, args)
+        end
 
         -- Close panel
         self:onClose()

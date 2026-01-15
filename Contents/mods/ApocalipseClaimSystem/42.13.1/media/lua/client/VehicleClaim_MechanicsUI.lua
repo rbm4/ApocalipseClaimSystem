@@ -67,6 +67,12 @@ function ISVehicleClaimInfoPanel:createChildren()
     self:addChild(self.lastSeenLabel)
     yOffset = yOffset + 25
     
+    -- Loading indicator (initially hidden)
+    self.loadingLabel = ISLabel:new(padding, yOffset, 20, getText("UI_VehicleClaim_Processing"), 1, 1, 0, 1, UIFont.Small, true)
+    self.loadingLabel:initialise()
+    self.loadingLabel:setVisible(false)
+    self:addChild(self.loadingLabel)
+    
     -- Action button (Claim or Release)
     self.actionButton = ISButton:new(padding, yOffset, self.width - (padding * 2), buttonHeight, "", self, ISVehicleClaimInfoPanel.onActionButton)
     self.actionButton:initialise()
@@ -87,10 +93,49 @@ end
 function ISVehicleClaimInfoPanel:updateInfo()
     if not self.vehicle then 
         print("[VehicleClaim] updateInfo: No vehicle")
+        -- Hide all UI elements when no vehicle
+        if self.loadingLabel then self.loadingLabel:setVisible(false) end
+        if self.statusLabel then self.statusLabel:setVisible(false) end
+        if self.ownerLabel then self.ownerLabel:setVisible(false) end
+        if self.lastSeenLabel then self.lastSeenLabel:setVisible(false) end
+        if self.actionButton then self.actionButton:setVisible(false) end
+        if self.manageButton then self.manageButton:setVisible(false) end
         return 
     end
     
-    print("[VehicleClaim] updateInfo: Checking vehicle " .. tostring(self.vehicle:getId()))
+    -- Check if there's a pending action for this vehicle
+    local vehicleHash = VehicleClaim.getVehicleHash(self.vehicle)
+    if not vehicleHash then
+        print("[VehicleClaim] updateInfo: No vehicle hash")
+        return
+    end
+    if vehicleHash and VehicleClaim.pendingActions[vehicleHash] then
+        -- Show loading state and don't update
+        if self.loadingLabel then
+            self.loadingLabel:setVisible(true)
+        end
+        
+        -- Hide status labels
+        if self.statusLabel then self.statusLabel:setVisible(false) end
+        if self.ownerLabel then self.ownerLabel:setVisible(false) end
+        if self.lastSeenLabel then self.lastSeenLabel:setVisible(false) end
+        
+        -- Disable buttons during pending action
+        if self.actionButton then self.actionButton:setVisible(false) end
+        if self.manageButton then self.manageButton:setVisible(false) end
+        
+        return  -- Don't update while action is pending
+    end
+    
+    -- Hide loading label when not pending
+    if self.loadingLabel then
+        self.loadingLabel:setVisible(false)
+    end
+    
+    -- Show status labels
+    if self.statusLabel then self.statusLabel:setVisible(true) end
+    if self.ownerLabel then self.ownerLabel:setVisible(true) end
+    if self.lastSeenLabel then self.lastSeenLabel:setVisible(true) end
     
     local steamID = VehicleClaim.getPlayerSteamID(self.player)
     local isClaimed = VehicleClaim.isClaimed(self.vehicle)
@@ -193,11 +238,11 @@ function ISVehicleClaimInfoPanel:onManageButton()
     if not self.vehicle then return end
     
     -- Get vehicle ID and claim data
-    local vehicleID = self.vehicle:getId()
     local claimData = VehicleClaim.getClaimData(self.vehicle)
+    local vehicleHash = VehicleClaim.getVehicleHash(self.vehicle)
     
     -- Open the manage access panel with correct parameter order
-    local panel = ISVehicleClaimPanel:new(100, 100, 400, 500, self.player, self.vehicle, vehicleID, claimData)
+    local panel = ISVehicleClaimPanel:new(100, 100, 400, 500, self.player, self.vehicle, vehicleHash, claimData)
     panel:initialise()
     panel:addToUIManager()
     
@@ -212,38 +257,56 @@ function ISVehicleClaimInfoPanel:update()
     
     -- Get vehicle reference from parent if we don't have it, or if parent's vehicle changed
     if self.parent and self.parent.vehicle then
-        local parentVehicleID = self.parent.vehicle:getId()
-        local currentVehicleID = self.vehicle and self.vehicle:getId() or nil
+        local parentVehicleHash = VehicleClaim.getVehicleHash(self.parent.vehicle)
+        local currentVehicleHash = self.vehicle and VehicleClaim.getVehicleHash(self.vehicle) or nil
         
         -- Detect vehicle change
-        if currentVehicleID ~= parentVehicleID then
-            print("[VehicleClaim] Vehicle changed from " .. tostring(currentVehicleID) .. " to " .. tostring(parentVehicleID))
+        if currentVehicleHash ~= parentVehicleHash then
+            print("[VehicleClaim] Vehicle changed from " .. tostring(currentVehicleHash) .. " to " .. tostring(parentVehicleHash) .. ")")
+            
+            -- Clear cache for old vehicle if it exists
+            if currentVehicleHash then
+                VehicleClaim.invalidateClaimCache(currentVehicleHash)
+            end
+            
+            -- Update to new vehicle
             self.vehicle = self.parent.vehicle
             self.dataRequested = false  -- Reset data request flag for new vehicle
             self.lastUpdateTime = 0  -- Force immediate update
             
+            -- Clear cache for new vehicle to force fresh read
+            if parentVehicleHash then
+                VehicleClaim.invalidateClaimCache(parentVehicleHash)
+            end
+            
             -- Request fresh data for new vehicle
-            local vehicleID = self.vehicle:getId()
-            sendClientCommand(self.player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_REQUEST_INFO, {
-                vehicleID = vehicleID
-            })
-            self.dataRequested = true
+            local vehicleHash = VehicleClaim.getOrCreateVehicleHash(self.vehicle)
+            if vehicleHash then
+                sendClientCommand(self.player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_REQUEST_INFO, {
+                    vehicleHash = vehicleHash
+                })
+                self.dataRequested = true
+            end
         elseif not self.vehicle then
             self.vehicle = self.parent.vehicle
-            print("[VehicleClaim] Got vehicle reference from parent: " .. tostring(self.vehicle:getId()))
+            self.dataRequested = false  -- Make sure we request data for first-time vehicle
+            print("[VehicleClaim] Got vehicle reference from parent: " .. tostring(VehicleClaim.getVehicleHash(self.vehicle)))
         end
     end
     
-    -- Update vehicle ID label if vehicle is available
+    -- Update vehicle hash label if vehicle is available
     if self.vehicle and self.vehicleIDLabel then
-        local vehicleID = tostring(self.vehicle:getId())
-        local currentText = getText("UI_VehicleClaim_VehicleIDLabel", vehicleID)
+        local vehicleHash = VehicleClaim.getVehicleHash(self.vehicle) or "Not Generated"
+        local currentText = getText("UI_VehicleClaim_VehicleIDLabel", vehicleHash)
         if self.vehicleIDLabel:getName() ~= currentText then
             self.vehicleIDLabel:setName(currentText)
         end
     end
     
-    -- Simple throttled updates: check every 2 seconds
+    -- Throttled updates: check every 1 second
+    -- This will pick up ModData changes from other players (server broadcasts via transmitModData)
+    -- Server responses (RESP_CLAIM_SUCCESS, etc.) only go to the requesting player,
+    -- but ModData sync goes to ALL clients automatically
     local currentTime = os.time()
     if not self.lastUpdateTime or (currentTime - self.lastUpdateTime) >= 1 then
         self:updateInfo()
@@ -262,6 +325,12 @@ function ISVehicleClaimInfoPanel:render()
     ISPanel.render(self)
 end
 
+function ISVehicleClaimInfoPanel:close()
+    -- Reset data request flag so it refreshes when reopened
+    self.dataRequested = false
+    ISPanel.close(self)
+end
+
 -----------------------------------------------------------
 -- Hook into ISVehicleMechanics to add our panel
 -----------------------------------------------------------
@@ -278,6 +347,7 @@ local function integrateWithMechanicsUI()
     -- Store original methods
     local original_createChildren = ISVehicleMechanics.createChildren
     local original_prerender = ISVehicleMechanics.prerender
+    local original_close = ISVehicleMechanics.close
     local original_onResize = ISVehicleMechanics.onResize
     local original_onMouseDown = ISVehicleMechanics.onMouseDown
     local original_onMouseUp = ISVehicleMechanics.onMouseUp
@@ -321,14 +391,30 @@ local function integrateWithMechanicsUI()
         if self.claimInfoPanel and self.vehicle then
             -- Only request once when window first opens
             if not self.claimInfoPanel.dataRequested then
-                local vehicleID = self.vehicle:getId()
-                sendClientCommand(self.chr, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_REQUEST_INFO, {
-                    vehicleID = vehicleID
-                })
-                self.claimInfoPanel.dataRequested = true
-                print("[VehicleClaim] Requested fresh claim data for vehicle " .. vehicleID)
+                local vehicleHash = VehicleClaim.getOrCreateVehicleHash(self.vehicle)
+                if vehicleHash then
+                    -- Invalidate cache so next read will get fresh data
+                    VehicleClaim.invalidateClaimCache(vehicleHash)
+                    
+                    sendClientCommand(self.chr, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_REQUEST_INFO, {
+                        vehicleHash = vehicleHash
+                    })
+                    self.claimInfoPanel.dataRequested = true
+                    print("[VehicleClaim] Requested fresh claim data for vehicle " .. vehicleHash)
+                end
             end
         end
+    end
+    
+    -- Hook close to reset panel state when window closes
+    ISVehicleMechanics.close = function(self)
+        -- Reset panel state for next open
+        if self.claimInfoPanel then
+            self.claimInfoPanel.dataRequested = false
+            self.claimInfoPanel.lastUpdateTime = 0
+        end
+        
+        original_close(self)
     end
     
     print("[VehicleClaim] Successfully integrated with vehicle mechanics UI")

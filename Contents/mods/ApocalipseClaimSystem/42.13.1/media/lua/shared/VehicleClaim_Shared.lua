@@ -6,6 +6,11 @@
 
 VehicleClaim = VehicleClaim or {}
 
+-- Global state tracking
+VehicleClaim.pendingActions = VehicleClaim.pendingActions or {}  -- {[vehicleHash] = actionType}
+VehicleClaim.claimDataCache = VehicleClaim.claimDataCache or {}  -- {[vehicleHash] = {data, timestamp}}
+VehicleClaim.CACHE_DURATION = 5  -- Seconds before cache expires
+
 -- Constants
 VehicleClaim.MOD_ID = "VehicleClaim"
 VehicleClaim.COMMAND_MODULE = "VehicleClaim"
@@ -18,6 +23,7 @@ VehicleClaim.VEHICLE_NAME_KEY = "vehicleName"
 VehicleClaim.ALLOWED_PLAYERS_KEY = "allowedPlayers"  -- Table: { [steamID] = playerName }
 VehicleClaim.CLAIM_TIME_KEY = "claimTimestamp"
 VehicleClaim.LAST_SEEN_KEY = "lastSeenTimestamp"
+VehicleClaim.VEHICLE_HASH_KEY = "vehicleHash"  -- Unique persistent hash for this vehicle
 
 -- Proximity settings
 VehicleClaim.CLAIM_DISTANCE = 4.0  -- Max distance to claim/interact
@@ -29,6 +35,7 @@ VehicleClaim.CMD_RELEASE = "releaseClaim"
 VehicleClaim.CMD_ADD_PLAYER = "addAllowedPlayer"
 VehicleClaim.CMD_REMOVE_PLAYER = "removeAllowedPlayer"
 VehicleClaim.CMD_REQUEST_INFO = "requestVehicleInfo"
+VehicleClaim.CMD_ADMIN_CLEAR_ALL = "adminClearAllClaims"
 
 -- Response types (server -> client)
 VehicleClaim.RESP_CLAIM_SUCCESS = "claimSuccess"
@@ -38,6 +45,7 @@ VehicleClaim.RESP_PLAYER_ADDED = "playerAdded"
 VehicleClaim.RESP_PLAYER_REMOVED = "playerRemoved"
 VehicleClaim.RESP_ACCESS_DENIED = "accessDenied"
 VehicleClaim.RESP_VEHICLE_INFO = "vehicleInfo"
+VehicleClaim.RESP_ADMIN_CLEAR_ALL_SUCCESS = "adminClearAllSuccess"
 
 -- Error codes
 VehicleClaim.ERR_VEHICLE_NOT_FOUND = "vehicleNotFound"
@@ -46,6 +54,7 @@ VehicleClaim.ERR_NOT_OWNER = "notOwner"
 VehicleClaim.ERR_TOO_FAR = "tooFar"
 VehicleClaim.ERR_PLAYER_NOT_FOUND = "playerNotFound"
 VehicleClaim.ERR_CLAIM_LIMIT_REACHED = "claimLimitReached"
+VehicleClaim.ERR_NOT_ADMIN = "notAdmin"
 
 -- Sandbox settings
 VehicleClaim.DEFAULT_MAX_CLAIMS = 3
@@ -55,60 +64,145 @@ VehicleClaim.CMD_REQUEST_MY_CLAIMS = "requestMyClaims"
 VehicleClaim.RESP_MY_CLAIMS = "myClaims"
 
 -- Global ModData key for server-side claim registry
+-- IMPORTANT: Registry is indexed by vehicle hash (stored in vehicle ModData)
+-- Hash is generated on first interaction and persists with the vehicle
+-- This ensures reliable vehicle identification across server restarts
 VehicleClaim.GLOBAL_REGISTRY_KEY = "VehicleClaimRegistry"
 
 -----------------------------------------------------------
 -- Utility Functions
 -----------------------------------------------------------
 
---- Get the claim data table from a vehicle's modData
---- NOTE: ModData is a SERVER-MANAGED CACHE synced from the global registry
---- The registry is the source of truth, ModData is for client-side enforcement
---- Server automatically syncs ModData when claiming/unclaiming
+--- Get or generate a unique hash for a vehicle
+--- Hash is stored in vehicle ModData and persists across sessions
 --- @param vehicle IsoVehicle
+--- @return string|nil vehicleHash
+function VehicleClaim.getOrCreateVehicleHash(vehicle)
+    if not vehicle then return nil end
+    
+    local modData = vehicle:getModData()
+    
+    -- Check if hash already exists in main ModData
+    if modData[VehicleClaim.VEHICLE_HASH_KEY] then
+        return modData[VehicleClaim.VEHICLE_HASH_KEY]
+    end
+    
+    -- Check if hash exists in claim data (for backwards compatibility)
+    local claimData = modData[VehicleClaim.MODDATA_KEY]
+    if claimData and claimData[VehicleClaim.VEHICLE_HASH_KEY] then
+        -- Migrate to main ModData for faster access
+        modData[VehicleClaim.VEHICLE_HASH_KEY] = claimData[VehicleClaim.VEHICLE_HASH_KEY]
+        vehicle:transmitModData()
+        return claimData[VehicleClaim.VEHICLE_HASH_KEY]
+    end
+    
+    -- Generate new hash based on vehicle properties
+    -- Use multiple vehicle properties to create a unique identifier
+    local x = math.floor(vehicle:getX() * 100)
+    local y = math.floor(vehicle:getY() * 100)
+    local z = math.floor(vehicle:getZ() * 100)
+    local scriptName = vehicle:getScript() and vehicle:getScript():getName() or "Unknown"
+    local timestamp = os.time()
+    local random = ZombRand(999999)
+    
+    -- Create hash string
+    local hashSource = string.format("%s_%d_%d_%d_%d_%d", scriptName, x, y, z, timestamp, random)
+    
+    -- Simple hash function (you could use a more sophisticated one)
+    local hash = 0
+    for i = 1, #hashSource do
+        hash = ((hash * 31) + string.byte(hashSource, i)) % 2147483647
+    end
+    
+    local vehicleHash = string.format("VH%010d", hash)
+    
+    -- Store in ModData
+    modData[VehicleClaim.VEHICLE_HASH_KEY] = vehicleHash
+    vehicle:transmitModData()
+    vehicle:saveToVehicleTable()
+    
+    VehicleClaim.log("Generated new vehicle hash: " .. vehicleHash .. " for " .. scriptName)
+    
+    return vehicleHash
+end
+
+--- Get vehicle hash without creating one
+--- @param vehicle IsoVehicle
+--- @return string|nil vehicleHash
+function VehicleClaim.getVehicleHash(vehicle)
+    if not vehicle then return nil end
+    
+    local modData = vehicle:getModData()
+    
+    -- Check main ModData first
+    if modData[VehicleClaim.VEHICLE_HASH_KEY] then
+        return modData[VehicleClaim.VEHICLE_HASH_KEY]
+    end
+    
+    -- Check claim data for backwards compatibility
+    local claimData = modData[VehicleClaim.MODDATA_KEY]
+    if claimData and claimData[VehicleClaim.VEHICLE_HASH_KEY] then
+        return claimData[VehicleClaim.VEHICLE_HASH_KEY]
+    end
+    
+    return nil
+end
+
+--- Get the claim data table from a vehicle's modData WITH CACHING
+--- NOTE: ModData is synced from server automatically via transmitModData()
+--- This function adds local caching to reduce redundant reads
+--- Cache expires after CACHE_DURATION seconds
+--- @param vehicle IsoVehicle
+--- @param forceRefresh boolean Optional - bypass cache
 --- @return table|nil claimData
-function VehicleClaim.getClaimData(vehicle)
-    VehicleClaim.log("getClaimData called")
+function VehicleClaim.getClaimData(vehicle, forceRefresh)
+    if not vehicle then return nil end
     
-    if not vehicle then 
-        VehicleClaim.log("vehicle is nil/false")
-        return nil 
+    -- Get vehicle hash for cache lookup
+    local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
+    if not vehicleHash and not forceRefresh then
+        -- No hash yet, read directly from ModData (first interaction)
+        local modData = vehicle:getModData()
+        return modData and modData[VehicleClaim.MODDATA_KEY] or nil
     end
     
-    VehicleClaim.log("vehicle type: " .. tostring(type(vehicle)))
-    
-    -- Check if getModData method exists
-    if not vehicle.getModData then
-        VehicleClaim.log("ERROR: vehicle.getModData method does not exist!")
-        return nil
+    -- Check cache if not forcing refresh
+    if not forceRefresh and vehicleHash then
+        local cached = VehicleClaim.claimDataCache[vehicleHash]
+        if cached then
+            local age = os.time() - cached.timestamp
+            if age < VehicleClaim.CACHE_DURATION then
+                -- Cache is still valid
+                return cached.data
+            end
+        end
     end
     
-    VehicleClaim.log("getModData method exists, calling it...")
-    
-    local success, modData = pcall(function() return vehicle:getModData() end)
-    
-    if not success then
-        VehicleClaim.log("ERROR: getModData() threw exception: " .. tostring(modData))
-        return nil
-    end
-    
-    VehicleClaim.log("getModData() returned: " .. tostring(modData))
-    VehicleClaim.log("modData type: " .. tostring(type(modData)))
-    
-    if modData == nil then 
-        VehicleClaim.log("modData is nil")
-        return nil 
-    end
-    
-    if not modData then 
-        VehicleClaim.log("modData is falsy (but not nil)")
-        return nil 
-    end
+    -- Cache miss or expired - read from ModData
+    local modData = vehicle:getModData()
+    if not modData then return nil end
     
     local claimData = modData[VehicleClaim.MODDATA_KEY]
-    VehicleClaim.log("claimData: " .. tostring(claimData))
+    
+    -- Update cache
+    if vehicleHash then
+        VehicleClaim.claimDataCache[vehicleHash] = {
+            data = claimData,
+            timestamp = os.time()
+        }
+    end
     
     return claimData
+end
+
+--- Invalidate cache for a specific vehicle
+--- Call this when claim state changes (claim, release, permission change)
+--- @param vehicleHash string
+function VehicleClaim.invalidateClaimCache(vehicleHash)
+    if vehicleHash then
+        VehicleClaim.claimDataCache[vehicleHash] = nil
+        VehicleClaim.log("Invalidated claim cache for " .. vehicleHash)
+    end
 end
 
 --- Check if a vehicle is claimed

@@ -107,6 +107,9 @@ function ISVehicleClaimListPanel:initialise()
         VehicleClaimClientCommands.registerPanel(self)
     end
     
+    -- Force refresh on panel open by clearing cache
+    self.lastCacheTime = nil
+    
     -- Load initial data from server
     self:refreshData()
 end
@@ -176,21 +179,21 @@ function ISVehicleClaimListPanel:updateVehicleList()
     self.infoLabel:setName(infoText)
     
     if not self.claimedVehiclesData or #self.claimedVehiclesData == 0 then
-        self.vehicleList:addItem(getText("UI_VehicleClaim_NoVehiclesClaimed"), {vehicleID = nil})
+        self.vehicleList:addItem(getText("UI_VehicleClaim_NoVehiclesClaimed"), {vehicleHash = nil})
         return
     end
     
     -- Add vehicles to list (from server data only)
     for _, claimData in ipairs(self.claimedVehiclesData) do
-        local vehicleID = claimData.vehicleID
+        local vehicleHash = claimData.vehicleHash
         local x = claimData.x or 0
         local y = claimData.y or 0
         
-        -- Show vehicle ID and last known position
-        local displayText = string.format("Vehicle ID: %d - (%d, %d)", vehicleID, math.floor(x), math.floor(y))
+        -- Show vehicle hash and last known position
+        local displayText = string.format("Vehicle %s - (%d, %d)", vehicleHash, math.floor(x), math.floor(y))
         
         self.vehicleList:addItem(displayText, {
-            vehicleID = vehicleID,
+            vehicleHash = vehicleHash,
             x = x,
             y = y,
             claimData = claimData
@@ -220,7 +223,7 @@ end
 function ISVehicleClaimListPanel.drawVehicleListItem(self, y, item, alt)
     local r, g, b = 0.9, 0.9, 0.9
     
-    if item.item.vehicleID == nil then
+    if item.item.vehicleHash == nil then
         -- "No vehicles" placeholder
         r, g, b = 0.5, 0.5, 0.5
     end
@@ -245,14 +248,14 @@ function ISVehicleClaimListPanel:onManageVehicle()
     if not selected or selected < 1 then return end
     
     local item = self.vehicleList.items[selected]
-    if not item or not item.item or not item.item.vehicleID then
+    if not item or not item.item or not item.item.vehicleHash then
         return
     end
     
-    local vehicleID = item.item.vehicleID
+    local vehicleHash = item.item.vehicleHash
     local claimData = item.item.claimData
     
-    -- Open management panel with only vehicleID and claim data (no vehicle reference)
+    -- Open management panel with only vehicleHash and claim data (no vehicle reference)
     local panel = ISVehicleClaimPanel:new(
         self.x + 50,
         self.y + 50,
@@ -260,7 +263,7 @@ function ISVehicleClaimListPanel:onManageVehicle()
         440,
         self.player,
         nil,  -- No vehicle reference from list panel
-        vehicleID,
+        vehicleHash,
         claimData
     )
     panel:initialise()

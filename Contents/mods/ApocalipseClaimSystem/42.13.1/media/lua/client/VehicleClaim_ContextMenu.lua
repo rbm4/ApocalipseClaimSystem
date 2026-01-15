@@ -40,14 +40,24 @@ function ISClaimVehicleAction:stop()
 end
 
 function ISClaimVehicleAction:perform()
+    -- Get or create vehicle hash
+    local vehicleHash = VehicleClaim.getOrCreateVehicleHash(self.vehicle)
+    if not vehicleHash then
+        VehicleClaim.log("ERROR: Could not get/create vehicle hash for claim")
+        ISBaseTimedAction.perform(self)
+        return
+    end
+    
+    -- Mark action as pending
+    VehicleClaim.pendingActions[vehicleHash] = "CLAIM"
+    
     -- Send claim request to server
-    local vehicleID = self.vehicle:getId()
     local steamID = VehicleClaim.getPlayerSteamID(self.character)
     local playerName = self.character:getUsername() or "Unknown"
     local vehicleName = self.vehicle:getScript():getName()
 
     local args = {
-        vehicleID = vehicleID,
+        vehicleHash = vehicleHash,
         steamID = steamID,
         playerName = playerName,
         vehicleName = vehicleName
@@ -95,11 +105,21 @@ function ISReleaseVehicleClaimAction:stop()
 end
 
 function ISReleaseVehicleClaimAction:perform()
-    local vehicleID = self.vehicle:getId()
+    -- Get vehicle hash
+    local vehicleHash = VehicleClaim.getVehicleHash(self.vehicle)
+    if not vehicleHash then
+        VehicleClaim.log("ERROR: Could not get vehicle hash for release")
+        ISBaseTimedAction.perform(self)
+        return
+    end
+    
+    -- Mark action as pending
+    VehicleClaim.pendingActions[vehicleHash] = "RELEASE"
+    
     local steamID = VehicleClaim.getPlayerSteamID(self.character)
 
     local args = {
-        vehicleID = vehicleID,
+        vehicleHash = vehicleHash,
         steamID = steamID
     }
 

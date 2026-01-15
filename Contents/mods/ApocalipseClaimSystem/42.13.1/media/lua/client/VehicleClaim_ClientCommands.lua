@@ -49,17 +49,27 @@ function VehicleClaimClient.onServerCommand(module, command, args)
 
     elseif command == VehicleClaim.RESP_MY_CLAIMS then
         VehicleClaimClient.onMyClaims(args)
+        
+    elseif command == VehicleClaim.RESP_ADMIN_CLEAR_ALL_SUCCESS then
+        VehicleClaimClient.onAdminClearAllSuccess(args)
     end
 end
 
 --- Handle successful claim
 function VehicleClaimClient.onClaimSuccess(args)
-    local vehicleID = args.vehicleID or "Unknown"
+    local vehicleHash = args.vehicleHash or "Unknown"
     local player = getPlayer()
+
+    -- Clear pending action
+    if vehicleHash and vehicleHash ~= "Unknown" then
+        VehicleClaim.pendingActions[vehicleHash] = nil
+        -- Invalidate cache to force fresh read
+        VehicleClaim.invalidateClaimCache(vehicleHash)
+    end
 
     -- Show notification to player
     if player then
-        player:Say("Successfully claimed vehicle ID: " .. tostring(vehicleID))
+        player:Say("Successfully claimed vehicle: " .. tostring(vehicleHash))
     end
 
     -- Refresh any open UI panels
@@ -70,6 +80,14 @@ end
 function VehicleClaimClient.onClaimFailed(args)
     local reason = args.reason or "Unknown error"
     local player = getPlayer()
+
+    -- Clear pending action for all vehicles (we don't know which one failed)
+    -- This is safe because claim failures are immediate
+    for hash, action in pairs(VehicleClaim.pendingActions) do
+        if action == "CLAIM" then
+            VehicleClaim.pendingActions[hash] = nil
+        end
+    end
 
     local message = "Claim failed: "
 
@@ -94,11 +112,18 @@ end
 
 --- Handle successful release
 function VehicleClaimClient.onReleaseSuccess(args)
-    local vehicleID = args.vehicleID or "Unknown"
+    local vehicleHash = args.vehicleHash or "Unknown"
     local player = getPlayer()
 
+    -- Clear pending action
+    if vehicleHash and vehicleHash ~= "Unknown" then
+        VehicleClaim.pendingActions[vehicleHash] = nil
+        -- Invalidate cache to force fresh read
+        VehicleClaim.invalidateClaimCache(vehicleHash)
+    end
+
     if player then
-        player:Say("Released claim on vehicle ID: " .. tostring(vehicleID))
+        player:Say("Released claim on vehicle: " .. tostring(vehicleHash))
     end
 
     VehicleClaimClient.refreshOpenPanels()
@@ -107,7 +132,13 @@ end
 --- Handle player added to access list
 function VehicleClaimClient.onPlayerAdded(args)
     local playerName = args.addedPlayerName or "Player"
+    local vehicleHash = args.vehicleHash
     local player = getPlayer()
+
+    -- Invalidate cache for this vehicle
+    if vehicleHash then
+        VehicleClaim.invalidateClaimCache(vehicleHash)
+    end
 
     if player then
         player:Say("Added " .. playerName .. " to vehicle access")
@@ -119,7 +150,13 @@ end
 --- Handle player removed from access list
 function VehicleClaimClient.onPlayerRemoved(args)
     local playerName = args.removedPlayerName or "Player"
+    local vehicleHash = args.vehicleHash
     local player = getPlayer()
+
+    -- Invalidate cache for this vehicle
+    if vehicleHash then
+        VehicleClaim.invalidateClaimCache(vehicleHash)
+    end
 
     if player then
         player:Say("Removed " .. playerName .. " from vehicle access")
@@ -168,6 +205,31 @@ function VehicleClaimClient.onMyClaims(args)
     VehicleClaimClient.refreshOpenPanels()
 end
 
+--- Handle admin clear all success response
+function VehicleClaimClient.onAdminClearAllSuccess(args)
+    local player = getPlayer()
+    local clearedClaims = args.clearedClaims or 0
+    local clearedVehicles = args.clearedVehicles or 0
+    local affectedPlayers = args.affectedPlayers or 0
+    
+    local message = string.format(
+        "[ADMIN] All claims cleared successfully!\nClaims removed: %d\nVehicles cleared: %d\nPlayers affected: %d",
+        clearedClaims, clearedVehicles, affectedPlayers
+    )
+    
+    if player then
+        player:Say(message)
+    end
+    
+    print("[VehicleClaim Admin] Clear all operation completed:")
+    print("  - Claims removed: " .. clearedClaims)
+    print("  - Vehicles cleared: " .. clearedVehicles)
+    print("  - Players affected: " .. affectedPlayers)
+    
+    -- Refresh any open panels
+    VehicleClaimClient.refreshOpenPanels()
+end
+
 -----------------------------------------------------------
 -- Client Request Helpers
 -----------------------------------------------------------
@@ -213,8 +275,14 @@ function VehicleClaimClient.requestVehicleInfo(vehicle, callback)
 
     VehicleClaimClient.pendingInfoCallback = callback
 
+    local vehicleHash = VehicleClaim.getOrCreateVehicleHash(vehicle)
+    if not vehicleHash then
+        VehicleClaim.log("ERROR: Could not get vehicle hash for info request")
+        return
+    end
+    
     local args = {
-        vehicleID = vehicle:getId(),
+        vehicleHash = vehicleHash,
         steamID = VehicleClaim.getPlayerSteamID(player)
     }
 
@@ -234,8 +302,14 @@ function VehicleClaimClient.addPlayer(vehicle, targetPlayerName)
         return
     end
 
+    local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
+    if not vehicleHash then
+        VehicleClaim.log("ERROR: Could not get vehicle hash for add player")
+        return
+    end
+    
     local args = {
-        vehicleID = vehicle:getId(),
+        vehicleHash = vehicleHash,
         steamID = VehicleClaim.getPlayerSteamID(player),
         targetPlayerName = targetPlayerName
     }
@@ -256,8 +330,14 @@ function VehicleClaimClient.removePlayer(vehicle, targetSteamID)
         return
     end
 
+    local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
+    if not vehicleHash then
+        VehicleClaim.log("ERROR: Could not get vehicle hash for remove player")
+        return
+    end
+    
     local args = {
-        vehicleID = vehicle:getId(),
+        vehicleHash = vehicleHash,
         steamID = VehicleClaim.getPlayerSteamID(player),
         targetSteamID = targetSteamID
     }
@@ -291,6 +371,15 @@ function VehicleClaimClient.refreshOpenPanels()
     for _, panel in ipairs(VehicleClaimClient.openPanels) do
         if panel and panel.refreshData then
             panel:refreshData()
+        end
+    end
+    
+    -- Also refresh mechanics UI panel if open
+    if ISVehicleMechanics and ISVehicleMechanics.instance and ISVehicleMechanics.instance.claimInfoPanel then
+        local panel = ISVehicleMechanics.instance.claimInfoPanel
+        panel.lastUpdateTime = 0  -- Force immediate update
+        if panel.updateInfo then
+            panel:updateInfo()
         end
     end
 end

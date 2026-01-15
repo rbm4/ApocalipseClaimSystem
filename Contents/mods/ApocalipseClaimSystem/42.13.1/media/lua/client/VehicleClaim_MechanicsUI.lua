@@ -32,6 +32,9 @@ function ISVehicleClaimInfoPanel:createChildren()
     
     print("[VehicleClaim] createChildren: vehicle=" .. tostring(self.vehicle))
     
+    -- Set up event listeners for claim changes
+    self:setupEventListeners()
+    
     local padding = 10
     local yOffset = padding
     local buttonHeight = 25
@@ -85,12 +88,70 @@ function ISVehicleClaimInfoPanel:createChildren()
     self.manageButton:initialise()
     self.manageButton.borderColor = {r=1, g=1, b=1, a=0.3}
     self:addChild(self.manageButton)
-    
-    -- Force immediate update
-    self.lastUpdateTime = 0
 end
 
-function ISVehicleClaimInfoPanel:updateInfo()
+function ISVehicleClaimInfoPanel:setupEventListeners()
+    -- Create event handler functions that check if event is for our vehicle
+    self.onClaimChangedHandler = function(vehicleHash, claimData)
+        local currentHash = self.vehicle and VehicleClaim.getVehicleHash(self.vehicle)
+        if currentHash == vehicleHash then
+            print("[VehicleClaim] Claim changed event for our vehicle: " .. vehicleHash)
+            self:updateInfo(claimData)
+        end
+    end
+    
+    self.onClaimReleasedHandler = function(vehicleHash, claimData)
+        local currentHash = self.vehicle and VehicleClaim.getVehicleHash(self.vehicle)
+        if currentHash == vehicleHash then
+            print("[VehicleClaim] Claim released event for our vehicle: " .. vehicleHash)
+            self:updateInfo(claimData)
+        end
+    end
+    
+    self.onAccessChangedHandler = function(vehicleHash, claimData)
+        local currentHash = self.vehicle and VehicleClaim.getVehicleHash(self.vehicle)
+        if currentHash == vehicleHash then
+            print("[VehicleClaim] Access changed event for our vehicle: " .. vehicleHash)
+            self:updateInfo(claimData)
+        end
+    end
+    
+    self.onVehicleInfoReceivedHandler = function(vehicleHash, claimData)
+        local currentHash = self.vehicle and VehicleClaim.getVehicleHash(self.vehicle)
+        if currentHash == vehicleHash then
+            print("[VehicleClaim] Vehicle info received for our vehicle: " .. vehicleHash)
+            self:updateInfo(claimData)
+        end
+    end
+    
+    -- Subscribe to events
+    Events.OnVehicleClaimChanged.Add(self.onClaimChangedHandler)
+    Events.OnVehicleClaimReleased.Add(self.onClaimReleasedHandler)
+    Events.OnVehicleClaimAccessChanged.Add(self.onAccessChangedHandler)
+    Events.OnVehicleInfoReceived.Add(self.onVehicleInfoReceivedHandler)
+    
+    print("[VehicleClaim] Event listeners registered")
+end
+
+function ISVehicleClaimInfoPanel:removeEventListeners()
+    -- Unsubscribe from events
+    if self.onClaimChangedHandler then
+        Events.OnVehicleClaimChanged.Remove(self.onClaimChangedHandler)
+    end
+    if self.onClaimReleasedHandler then
+        Events.OnVehicleClaimReleased.Remove(self.onClaimReleasedHandler)
+    end
+    if self.onAccessChangedHandler then
+        Events.OnVehicleClaimAccessChanged.Remove(self.onAccessChangedHandler)
+    end
+    if self.onVehicleInfoReceivedHandler then
+        Events.OnVehicleInfoReceived.Remove(self.onVehicleInfoReceivedHandler)
+    end
+    
+    print("[VehicleClaim] Event listeners removed")
+end
+
+function ISVehicleClaimInfoPanel:updateInfo(claimData)
     if not self.vehicle then 
         print("[VehicleClaim] updateInfo: No vehicle")
         -- Hide all UI elements when no vehicle
@@ -103,49 +164,38 @@ function ISVehicleClaimInfoPanel:updateInfo()
         return 
     end
     
-    -- Check if there's a pending action for this vehicle
     local vehicleHash = VehicleClaim.getVehicleHash(self.vehicle)
     if not vehicleHash then
         print("[VehicleClaim] updateInfo: No vehicle hash")
         return
     end
-    if vehicleHash and VehicleClaim.pendingActions[vehicleHash] then
-        -- Show loading state and don't update
-        if self.loadingLabel then
-            self.loadingLabel:setVisible(true)
-        end
-        
-        -- Hide status labels
-        if self.statusLabel then self.statusLabel:setVisible(false) end
-        if self.ownerLabel then self.ownerLabel:setVisible(false) end
-        if self.lastSeenLabel then self.lastSeenLabel:setVisible(false) end
-        
-        -- Disable buttons during pending action
-        if self.actionButton then self.actionButton:setVisible(false) end
-        if self.manageButton then self.manageButton:setVisible(false) end
-        
-        return  -- Don't update while action is pending
+    
+    -- If no claim data provided, read from vehicle ModData
+    if not claimData then
+        claimData = VehicleClaim.getClaimData(self.vehicle)
     end
     
-    -- Hide loading label when not pending
-    if self.loadingLabel then
-        self.loadingLabel:setVisible(false)
-    end
-    
-    -- Show status labels
+    -- Show all status labels (no more loading state needed)
+    if self.loadingLabel then self.loadingLabel:setVisible(false) end
     if self.statusLabel then self.statusLabel:setVisible(true) end
     if self.ownerLabel then self.ownerLabel:setVisible(true) end
     if self.lastSeenLabel then self.lastSeenLabel:setVisible(true) end
     
     local steamID = VehicleClaim.getPlayerSteamID(self.player)
-    local isClaimed = VehicleClaim.isClaimed(self.vehicle)
-    local ownerID = VehicleClaim.getOwnerID(self.vehicle)
-    local ownerName = VehicleClaim.getOwnerName(self.vehicle)
+    
+    -- Determine if claimed based on claimData
+    local isClaimed = claimData ~= nil
+    local ownerID = claimData and claimData[VehicleClaim.OWNER_ID_KEY]
+    local ownerName = claimData and claimData[VehicleClaim.OWNER_NAME_KEY]
     
     print("[VehicleClaim] isClaimed=" .. tostring(isClaimed) .. " ownerID=" .. tostring(ownerID))
     
     local isOwner = ownerID == steamID
-    local hasAccess = VehicleClaim.hasAccess(self.vehicle, steamID)
+    local hasAccess = false
+    if claimData then
+        local allowedPlayers = claimData[VehicleClaim.ALLOWED_PLAYERS_KEY] or {}
+        hasAccess = allowedPlayers[steamID] ~= nil
+    end
     local isAdmin = self.player:getAccessLevel() == "admin" or self.player:getAccessLevel() == "moderator"
     
     if not isClaimed then
@@ -178,7 +228,6 @@ function ISVehicleClaimInfoPanel:updateInfo()
         end
         
         -- Last seen info
-        local claimData = VehicleClaim.getClaimData(self.vehicle)
         if claimData then
             local lastSeen = claimData[VehicleClaim.LAST_SEEN_KEY]
             if lastSeen then
@@ -228,10 +277,7 @@ function ISVehicleClaimInfoPanel:onActionButton()
         ISTimedActionQueue.add(action)
     end
     
-    -- Close mechanics UI after action
-    if ISVehicleMechanics.instance then
-        ISVehicleMechanics.instance:close()
-    end
+    -- UI will update automatically via events when server confirms
 end
 
 function ISVehicleClaimInfoPanel:onManageButton()
@@ -246,10 +292,7 @@ function ISVehicleClaimInfoPanel:onManageButton()
     panel:initialise()
     panel:addToUIManager()
     
-    -- Close mechanics UI
-    if ISVehicleMechanics.instance then
-        ISVehicleMechanics.instance:close()
-    end
+    -- UI will update automatically via events when changes are made
 end
 
 function ISVehicleClaimInfoPanel:update()
@@ -272,7 +315,6 @@ function ISVehicleClaimInfoPanel:update()
             -- Update to new vehicle
             self.vehicle = self.parent.vehicle
             self.dataRequested = false  -- Reset data request flag for new vehicle
-            self.lastUpdateTime = 0  -- Force immediate update
             
             -- Clear cache for new vehicle to force fresh read
             if parentVehicleHash then
@@ -287,6 +329,9 @@ function ISVehicleClaimInfoPanel:update()
                 })
                 self.dataRequested = true
             end
+            
+            -- Trigger immediate update for new vehicle
+            self:updateInfo()
         elseif not self.vehicle then
             self.vehicle = self.parent.vehicle
             self.dataRequested = false  -- Make sure we request data for first-time vehicle
@@ -302,16 +347,6 @@ function ISVehicleClaimInfoPanel:update()
             self.vehicleIDLabel:setName(currentText)
         end
     end
-    
-    -- Throttled updates: check every 1 second
-    -- This will pick up ModData changes from other players (server broadcasts via transmitModData)
-    -- Server responses (RESP_CLAIM_SUCCESS, etc.) only go to the requesting player,
-    -- but ModData sync goes to ALL clients automatically
-    local currentTime = os.time()
-    if not self.lastUpdateTime or (currentTime - self.lastUpdateTime) >= 1 then
-        self:updateInfo()
-        self.lastUpdateTime = currentTime
-    end
 end
 
 
@@ -326,6 +361,9 @@ function ISVehicleClaimInfoPanel:render()
 end
 
 function ISVehicleClaimInfoPanel:close()
+    -- Unsubscribe from events when panel closes
+    self:removeEventListeners()
+    
     -- Reset data request flag so it refreshes when reopened
     self.dataRequested = false
     ISPanel.close(self)
@@ -401,6 +439,9 @@ local function integrateWithMechanicsUI()
                     })
                     self.claimInfoPanel.dataRequested = true
                     print("[VehicleClaim] Requested fresh claim data for vehicle " .. vehicleHash)
+                    
+                    -- Trigger immediate update to display fresh data
+                    self.claimInfoPanel:updateInfo()
                 end
             end
         end
@@ -411,7 +452,6 @@ local function integrateWithMechanicsUI()
         -- Reset panel state for next open
         if self.claimInfoPanel then
             self.claimInfoPanel.dataRequested = false
-            self.claimInfoPanel.lastUpdateTime = 0
         end
         
         original_close(self)

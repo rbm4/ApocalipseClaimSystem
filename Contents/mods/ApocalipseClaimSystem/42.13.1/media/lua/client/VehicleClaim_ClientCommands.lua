@@ -7,8 +7,14 @@
 local VehicleClaimClient = {}
 
 -----------------------------------------------------------
--- Server Response Handlers
+-- Custom Events
 -----------------------------------------------------------
+-- These events fire when claim data changes
+-- Components can listen to these for reactive updates
+LuaEventManager.AddEvent("OnVehicleClaimChanged")
+LuaEventManager.AddEvent("OnVehicleClaimReleased")
+LuaEventManager.AddEvent("OnVehicleClaimAccessChanged")
+LuaEventManager.AddEvent("OnVehicleInfoReceived")
 
 --- Process server commands sent to this client
 --- @param module string Command module identifier
@@ -72,6 +78,12 @@ function VehicleClaimClient.onClaimSuccess(args)
         player:Say("Successfully claimed vehicle: " .. tostring(vehicleHash))
     end
 
+    -- Trigger event for reactive components with claim data from server response
+    if vehicleHash and vehicleHash ~= "Unknown" then
+        local claimData = args.claimData
+        triggerEvent("OnVehicleClaimChanged", vehicleHash, claimData)
+    end
+
     -- Refresh any open UI panels
     VehicleClaimClient.refreshOpenPanels()
 end
@@ -126,6 +138,16 @@ function VehicleClaimClient.onReleaseSuccess(args)
         player:Say("Released claim on vehicle: " .. tostring(vehicleHash))
     end
 
+    -- Trigger event for reactive components - pass nil as claimData since vehicle is now unclaimed
+    if vehicleHash and vehicleHash ~= "Unknown" then
+        triggerEvent("OnVehicleClaimReleased", vehicleHash, nil)
+    end
+
+    -- Close mechanics UI if open
+    if ISVehicleMechanics and ISVehicleMechanics.instance then
+        ISVehicleMechanics.instance:close()
+    end
+
     VehicleClaimClient.refreshOpenPanels()
 end
 
@@ -142,6 +164,12 @@ function VehicleClaimClient.onPlayerAdded(args)
 
     if player then
         player:Say("Added " .. playerName .. " to vehicle access")
+    end
+
+    -- Trigger event for reactive components with updated claim data
+    if vehicleHash then
+        local claimData = args.claimData
+        triggerEvent("OnVehicleClaimAccessChanged", vehicleHash, claimData)
     end
 
     VehicleClaimClient.refreshOpenPanels()
@@ -162,6 +190,12 @@ function VehicleClaimClient.onPlayerRemoved(args)
         player:Say("Removed " .. playerName .. " from vehicle access")
     end
 
+    -- Trigger event for reactive components with updated claim data
+    if vehicleHash then
+        local claimData = args.claimData
+        triggerEvent("OnVehicleClaimAccessChanged", vehicleHash, claimData)
+    end
+
     VehicleClaimClient.refreshOpenPanels()
 end
 
@@ -178,7 +212,15 @@ end
 
 --- Handle vehicle info response (for UI panel)
 function VehicleClaimClient.onVehicleInfo(args)
-    -- Dispatch to any listening UI panels
+    local vehicleHash = args.vehicleHash
+    
+    -- Trigger event for reactive components with claim data
+    if vehicleHash then
+        local claimData = args.claimData
+        triggerEvent("OnVehicleInfoReceived", vehicleHash, claimData)
+    end
+    
+    -- Dispatch to any listening UI panels (legacy callback support)
     if VehicleClaimClient.pendingInfoCallback then
         VehicleClaimClient.pendingInfoCallback(args)
         VehicleClaimClient.pendingInfoCallback = nil
@@ -368,6 +410,8 @@ end
 
 --- Refresh all open panels
 function VehicleClaimClient.refreshOpenPanels()
+    print("[VehicleClaim] refreshOpenPanels called")
+    
     for _, panel in ipairs(VehicleClaimClient.openPanels) do
         if panel and panel.refreshData then
             panel:refreshData()
@@ -376,11 +420,29 @@ function VehicleClaimClient.refreshOpenPanels()
     
     -- Also refresh mechanics UI panel if open
     if ISVehicleMechanics and ISVehicleMechanics.instance and ISVehicleMechanics.instance.claimInfoPanel then
+        print("[VehicleClaim] Found mechanics UI panel, triggering update")
         local panel = ISVehicleMechanics.instance.claimInfoPanel
-        panel.lastUpdateTime = 0  -- Force immediate update
         if panel.updateInfo then
+            -- Immediate update
             panel:updateInfo()
+            
+            -- Schedule a delayed update after 100ms to catch ModData sync from server
+            -- transmitModData() broadcasts asynchronously, so we need to wait for it
+            local function delayedUpdate()
+                if ISVehicleMechanics and ISVehicleMechanics.instance and ISVehicleMechanics.instance.claimInfoPanel then
+                    print("[VehicleClaim] Delayed update triggered")
+                    ISVehicleMechanics.instance.claimInfoPanel:updateInfo()
+                end
+            end
+            
+            -- Use a timer event to delay the update
+            Events.OnTick.Add(function()
+                delayedUpdate()
+                Events.OnTick.Remove(delayedUpdate)
+            end)
         end
+    else
+        print("[VehicleClaim] Mechanics UI not open or no claim panel found")
     end
 end
 

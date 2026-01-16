@@ -49,9 +49,10 @@ Contents/mods/ApocalipseClaimSystem/42.13.1/
 │       ├── server/
 │       │   └── VehicleClaim_ServerCommands.lua  # Server-side validation & state changes
 │       └── client/
-│           ├── VehicleClaim_ClientCommands.lua  # Server response handling
-│           ├── VehicleClaim_ContextMenu.lua     # Right-click menu integration
-│           ├── VehicleClaim_Enforcement.lua     # ⭐ Build 42 interaction blocking
+           ├── VehicleClaim_ClientCommands.lua  # Server response handling & local cache updates
+           ├── VehicleClaim_ContextMenu.lua     # Right-click menu integration
+           ├── VehicleClaim_Enforcement.lua     # ⭐ Build 42 interaction blocking
+           ├── VehicleClaim_MechanicsUI.lua     # ⭐ Embedded claim UI in mechanics window
 │           ├── VehicleClaim_PlayerMenu.lua      # "Meus Veículos" self-menu option
 │           └── ui/
 │               ├── ISVehicleClaimPanel.lua      # Single vehicle management
@@ -77,6 +78,13 @@ Loaded on both client and server. Contains constants, utilities, and validation 
 - Calculate distances and validate proximity
 - Read sandbox configuration
 - Count player claims and enforce limits
+- **Manage local client cache** (`VehicleClaim.claimDataCache`) for performance
+
+**Caching System:**
+- Client maintains local cache indexed by vehicle hash
+- Cache populated from server events (authoritative source)
+- Cache prevents redundant ModData reads
+- Event-driven invalidation ensures consistency
 
 **Security Note:** All functions here are read-only or local calculations. No state mutations occur in shared code.
 
@@ -123,15 +131,23 @@ Server-only code with authority over all state changes.
   - Validate ownership for protected actions
   - Enforce claim limits
 - **Execute state changes**:
-  - Initialize claim data in vehicle ModData
+  - Update global registry (ModData) as authoritative source
+  - Sync vehicle ModData from registry
   - Add/remove allowed players
   - Release claims
-- **Send responses** back to clients
+- **Send responses** back to clients with claim data from registry
 - **Broadcast changes** via `vehicle:transmitModData()`
+
+**Data Flow (Registry-Authoritative):**
+```
+Global Registry (Server ModData) → Server Response Events → Client Cache → UI
+                                         ↓
+                                  Vehicle ModData (sync layer)
+```
 
 **Security Flow:**
 ```
-Client Request → Server Validates → Execute if Valid → Sync to All Clients
+Client Request → Server Validates → Execute if Valid → Update Registry → Sync to Clients
                         ↓
                    (Reject if invalid)
 ```
@@ -158,6 +174,47 @@ Client-side UI, context menus, and action queueing.
 
 **Security Note:** Only **initiates requests**. Does not modify state directly.
 
+#### **`VehicleClaim_MechanicsUI.lua`** ⭐ (Event-Driven Integration)
+**Purpose:** Embed claim info and controls directly in the vehicle mechanics window.
+
+**Architecture:**
+- Hooks `ISVehicleMechanics.createChildren()` to inject claim panel
+- Panel positioned at bottom of mechanics window
+- **Event-driven updates** - no polling or manual refresh needed
+- Subscribes to custom events for reactive UI updates
+
+**Panel Features:**
+- Real-time claim status display (owner, last seen, access level)
+- Quick action buttons (Claim/Release) with timed actions
+- Manage access button for owners
+- Vehicle hash display for identification
+
+**Event Subscriptions:**
+```lua
+Events.OnVehicleClaimChanged.Add(handler)      -- Reacts to claims
+Events.OnVehicleClaimReleased.Add(handler)     -- Reacts to releases  
+Events.OnVehicleClaimAccessChanged.Add(handler)-- Reacts to access changes
+Events.OnVehicleInfoReceived.Add(handler)      -- Reacts to info queries
+```
+
+**Event Handler Pattern:**
+```lua
+self.onClaimChangedHandler = function(vehicleHash, claimData)
+    if currentHash == vehicleHash then
+        self:updateInfo(claimData)  -- Update UI with fresh data
+    end
+end
+```
+
+**Benefits:**
+- ✅ No manual refresh loops
+- ✅ Instant updates when claim state changes
+- ✅ Minimal network traffic (event-driven)
+- ✅ Consistent with mechanics window workflow
+- ✅ Cache updated immediately when events fire
+
+**Security Note:** Panel reads from local cache, which is populated by event-driven server responses.
+
 **Vehicle Detection Logic:**
 1. Check if clicked object is `IsoVehicle` (direct click)
 2. If not found, search clicked square for nearest vehicle
@@ -165,13 +222,24 @@ Client-side UI, context menus, and action queueing.
 4. Verify player proximity before showing menu
 
 #### **`VehicleClaim_ClientCommands.lua`**
-**Purpose:** Handle server responses and update local UI.
+**Purpose:** Handle server responses and update local UI with event-driven architecture.
 
 **Responsibilities:**
 - Process server command responses
+- **Update local cache** with authoritative server data
+- **Trigger custom events** for reactive UI updates:
+  - `OnVehicleClaimChanged` - Vehicle claimed or modified
+  - `OnVehicleClaimReleased` - Vehicle unclaimed
+  - `OnVehicleClaimAccessChanged` - Access list modified
+  - `OnVehicleInfoReceived` - Vehicle info query response
 - Display notifications to player
-- Refresh open UI panels via panel registry
 - Handle success/failure messages with localized text
+
+**Event-Driven Architecture:**
+When server sends claim data, the handler:
+1. Updates `VehicleClaim.claimDataCache[vehicleHash]` with fresh data
+2. Triggers corresponding custom event
+3. All subscribed UI components react automatically
 
 **Important:** This file **receives** data from server but never modifies vehicle state locally.
 
@@ -287,6 +355,49 @@ ISUI-based panels for vehicle management.
 
 ---
 
+## Event-Driven UI Architecture
+
+### **Custom Events**
+The system uses LuaEventManager custom events for reactive UI updates:
+
+| Event | Trigger | Parameters | Purpose |
+|-------|---------|------------|----------|
+| `OnVehicleClaimChanged` | Vehicle claimed or modified | `vehicleHash`, `claimData` | Update UI to show new owner/access |
+| `OnVehicleClaimReleased` | Vehicle unclaimed | `vehicleHash`, `nil` | Update UI to show available |
+| `OnVehicleClaimAccessChanged` | Access list modified | `vehicleHash`, `claimData` | Update UI to show new access list |
+| `OnVehicleInfoReceived` | Info query response | `vehicleHash`, `claimData` | Populate UI with vehicle data |
+
+### **Event Flow**
+```
+1. Server sends response with claim data from registry
+2. Client handler receives response
+3. Client updates local cache with fresh data
+4. Client triggers custom event
+5. All subscribed UI components receive event
+6. Each component checks if event is for their vehicle
+7. Matching components update immediately
+```
+
+### **Benefits**
+- ✅ **No Polling:** UI doesn't spam server with requests
+- ✅ **Instant Updates:** Changes propagate immediately
+- ✅ **Consistent Data:** All UI reads from same cached source
+- ✅ **Minimal Traffic:** Server sends data only when changed
+- ✅ **Scalable:** Adding new UI components just subscribes to events
+
+### **Cache Synchronization**
+When events deliver claim data, the handler updates the cache:
+```lua
+VehicleClaim.claimDataCache[vehicleHash] = {
+    data = claimData,  -- Fresh from server registry
+    timestamp = os.time()
+}
+```
+
+This ensures `isClaimed()`, `hasAccess()`, and other utility functions read correct data from cache instead of stale vehicle ModData.
+
+---
+
 ## Global Claim Registry
 
 ### **Purpose**
@@ -385,20 +496,35 @@ VehicleClaimServer.onClientCommand()
     → initializeClaimData(vehicle, steamID, playerName)
     → vehicle:transmitModData() // Syncs to all clients
 
-// 5. SERVER SENDS RESPONSE
-sendServerCommand(player, "VehicleClaim", "claimSuccess", {...})
+// 5. SERVER SENDS RESPONSE WITH CLAIM DATA FROM REGISTRY
+sendServerCommand(player, "VehicleClaim", "claimSuccess", {
+    vehicleHash = hash,
+    claimData = {...}  // Fresh from global registry
+})
 
-// 6. CLIENT RECEIVES RESPONSE
+// 6. CLIENT RECEIVES RESPONSE (EVENT-DRIVEN)
 VehicleClaimClient.onServerCommand()
   → VehicleClaimClient.onClaimSuccess(args)
+    // Update local cache with authoritative server data
+    → VehicleClaim.claimDataCache[vehicleHash] = {
+        data = args.claimData,
+        timestamp = os.time()
+      }
+    // Trigger custom event for reactive UI
+    → triggerEvent("OnVehicleClaimChanged", vehicleHash, claimData)
     → player:Say("Successfully claimed Vehicle")
-    → Refresh open UI panels
 
-// 7. ALL CLIENTS RECEIVE MODDATA UPDATE (automatic)
-Vehicle ModData synced by game engine
-  → UI panels refresh
-  → Context menus update
+// 7. ALL UI COMPONENTS REACT TO EVENT
+ISVehicleClaimInfoPanel.onClaimChangedHandler()
+  → self:updateInfo(claimData)  // Updates immediately with event data
+  
+ISVehicleClaimPanel.eventHandler()
+  → Refreshes if open
+
+// 8. VEHICLE MODDATA SYNCED (background)
+Vehicle ModData synced by game engine to all clients
   → Enforcement checks activate
+  → Context menus update
 ```
 
 ---
@@ -580,16 +706,29 @@ end
 
 **Purpose:** Intercept vanilla functions while preserving original behavior
 
-### **6. Panel Registry Pattern**
+### **6. Event-Driven UI Pattern**
 ```lua
--- Register panel for auto-refresh
-VehicleClaimPanelRegistry.register(panel)
+-- Subscribe to custom events in panel initialization
+Events.OnVehicleClaimChanged.Add(self.onClaimChangedHandler)
 
--- On server response, refresh all panels
-VehicleClaimPanelRegistry.refreshAll()
+-- Event handler checks if event is for this vehicle
+self.onClaimChangedHandler = function(vehicleHash, claimData)
+    if currentHash == vehicleHash then
+        self:updateInfo(claimData)  // React to change
+    end
+end
+
+-- Cleanup on panel close
+Events.OnVehicleClaimChanged.Remove(self.onClaimChangedHandler)
 ```
 
-**Purpose:** Keep UI synchronized with server state changes
+**Purpose:** Reactive UI updates without polling or manual refresh loops
+
+**Benefits:**
+- No periodic network requests
+- Instant updates when state changes
+- Minimal performance overhead
+- Consistent data across all UI components
 
 ---
 
@@ -616,6 +755,10 @@ VehicleClaimPanelRegistry.refreshAll()
 ### **UI**
 - ✅ Context menu shows correct options
 - ✅ Management panel displays accurate data (440px height)
+- ✅ **Mechanics window (V key) shows embedded claim panel**
+- ✅ **Claim panel updates instantly on claim/release (event-driven)**
+- ✅ **Can claim/release directly from mechanics window**
+- ✅ **Unclaiming and re-claiming works without reopening UI**
 - ✅ Vehicle list shows all claimed vehicles (even unloaded)
 - ✅ Unloaded vehicles show in yellow with coordinates
 - ✅ Error messages display properly in correct language

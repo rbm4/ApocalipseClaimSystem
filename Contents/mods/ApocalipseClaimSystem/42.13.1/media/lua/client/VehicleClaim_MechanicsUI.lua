@@ -170,7 +170,17 @@ function ISVehicleClaimInfoPanel:resetToUnclaimedState()
     
     print("[VehicleClaim] Resetting panel to unclaimed state")
     
-       
+    -- Explicitly mark vehicle as unclaimed in cache
+    -- This prevents isClaimed() from reading stale ModData
+    local vehicleHash = self.vehicle and VehicleClaim.getVehicleHash(self.vehicle)
+    if vehicleHash then
+        VehicleClaim.claimDataCache[vehicleHash] = {
+            data = nil,  -- Explicitly unclaimed
+            timestamp = os.time()
+        }
+        print("[VehicleClaim] Updated cache to unclaimed state for vehicle: " .. vehicleHash)
+    end
+    
     -- Show all status labels
     if self.loadingLabel then self.loadingLabel:setVisible(false) end
     if self.statusLabel then self.statusLabel:setVisible(true) end

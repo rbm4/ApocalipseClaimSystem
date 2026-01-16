@@ -11,10 +11,15 @@ local VehicleClaimClient = {}
 -----------------------------------------------------------
 -- These events fire when claim data changes
 -- Components can listen to these for reactive updates
+LuaEventManager.AddEvent("OnVehicleClaimSuccess")
 LuaEventManager.AddEvent("OnVehicleClaimChanged")
 LuaEventManager.AddEvent("OnVehicleClaimReleased")
 LuaEventManager.AddEvent("OnVehicleClaimAccessChanged")
 LuaEventManager.AddEvent("OnVehicleInfoReceived")
+
+-----------------------------------------------------------
+-- Server Response Handlers
+-----------------------------------------------------------
 
 --- Process server commands sent to this client
 --- @param module string Command module identifier
@@ -66,11 +71,15 @@ function VehicleClaimClient.onClaimSuccess(args)
     local vehicleHash = args.vehicleHash or "Unknown"
     local player = getPlayer()
 
-    -- Clear pending action
-    if vehicleHash and vehicleHash ~= "Unknown" then
-        VehicleClaim.pendingActions[vehicleHash] = nil
-        -- Invalidate cache to force fresh read
-        VehicleClaim.invalidateClaimCache(vehicleHash)
+    print("[VehicleClaim] onClaimSuccess - vehicleHash: " .. tostring(vehicleHash))
+    print("[VehicleClaim] onClaimSuccess - received args:")
+    for k, v in pairs(args) do
+        print("  - " .. tostring(k) .. " = " .. tostring(v) .. " (type: " .. type(v) .. ")")
+        if type(v) == "table" then
+            for k2, v2 in pairs(v) do
+                print("    - " .. tostring(k2) .. " = " .. tostring(v2))
+            end
+        end
     end
 
     -- Show notification to player
@@ -78,14 +87,22 @@ function VehicleClaimClient.onClaimSuccess(args)
         player:Say("Successfully claimed vehicle: " .. tostring(vehicleHash))
     end
 
-    -- Trigger event for reactive components with claim data from server response
+    -- Trigger events for reactive components with claim data from server response
     if vehicleHash and vehicleHash ~= "Unknown" then
         local claimData = args.claimData
+        
+        -- Update local cache with authoritative server data
+        VehicleClaim.claimDataCache[vehicleHash] = {
+            data = claimData,
+            timestamp = os.time()
+        }
+        
+        --triggerEvent("OnVehicleClaimSuccess", vehicleHash, claimData)
         triggerEvent("OnVehicleClaimChanged", vehicleHash, claimData)
     end
 
     -- Refresh any open UI panels
-    VehicleClaimClient.refreshOpenPanels()
+    -- VehicleClaimClient.refreshOpenPanels()
 end
 
 --- Handle failed claim attempt
@@ -127,19 +144,15 @@ function VehicleClaimClient.onReleaseSuccess(args)
     local vehicleHash = args.vehicleHash or "Unknown"
     local player = getPlayer()
 
-    -- Clear pending action
-    if vehicleHash and vehicleHash ~= "Unknown" then
-        VehicleClaim.pendingActions[vehicleHash] = nil
-        -- Invalidate cache to force fresh read
-        VehicleClaim.invalidateClaimCache(vehicleHash)
-    end
-
     if player then
         player:Say("Released claim on vehicle: " .. tostring(vehicleHash))
     end
 
     -- Trigger event for reactive components - pass nil as claimData since vehicle is now unclaimed
     if vehicleHash and vehicleHash ~= "Unknown" then
+        -- Clear cache since vehicle is now unclaimed
+        VehicleClaim.claimDataCache[vehicleHash] = nil
+        
         triggerEvent("OnVehicleClaimReleased", vehicleHash, nil)
     end
 
@@ -157,11 +170,6 @@ function VehicleClaimClient.onPlayerAdded(args)
     local vehicleHash = args.vehicleHash
     local player = getPlayer()
 
-    -- Invalidate cache for this vehicle
-    if vehicleHash then
-        VehicleClaim.invalidateClaimCache(vehicleHash)
-    end
-
     if player then
         player:Say("Added " .. playerName .. " to vehicle access")
     end
@@ -169,6 +177,13 @@ function VehicleClaimClient.onPlayerAdded(args)
     -- Trigger event for reactive components with updated claim data
     if vehicleHash then
         local claimData = args.claimData
+        
+        -- Update local cache with updated access list
+        VehicleClaim.claimDataCache[vehicleHash] = {
+            data = claimData,
+            timestamp = os.time()
+        }
+        
         triggerEvent("OnVehicleClaimAccessChanged", vehicleHash, claimData)
     end
 
@@ -181,11 +196,6 @@ function VehicleClaimClient.onPlayerRemoved(args)
     local vehicleHash = args.vehicleHash
     local player = getPlayer()
 
-    -- Invalidate cache for this vehicle
-    if vehicleHash then
-        VehicleClaim.invalidateClaimCache(vehicleHash)
-    end
-
     if player then
         player:Say("Removed " .. playerName .. " from vehicle access")
     end
@@ -193,6 +203,13 @@ function VehicleClaimClient.onPlayerRemoved(args)
     -- Trigger event for reactive components with updated claim data
     if vehicleHash then
         local claimData = args.claimData
+        
+        -- Update local cache with updated access list
+        VehicleClaim.claimDataCache[vehicleHash] = {
+            data = claimData,
+            timestamp = os.time()
+        }
+        
         triggerEvent("OnVehicleClaimAccessChanged", vehicleHash, claimData)
     end
 
@@ -217,6 +234,14 @@ function VehicleClaimClient.onVehicleInfo(args)
     -- Trigger event for reactive components with claim data
     if vehicleHash then
         local claimData = args.claimData
+        
+        -- Update local cache with authoritative server data
+        -- This ensures isClaimed() and other functions read correct data
+        VehicleClaim.claimDataCache[vehicleHash] = {
+            data = claimData,
+            timestamp = os.time()
+        }
+        
         triggerEvent("OnVehicleInfoReceived", vehicleHash, claimData)
     end
     
@@ -418,32 +443,6 @@ function VehicleClaimClient.refreshOpenPanels()
         end
     end
     
-    -- Also refresh mechanics UI panel if open
-    if ISVehicleMechanics and ISVehicleMechanics.instance and ISVehicleMechanics.instance.claimInfoPanel then
-        print("[VehicleClaim] Found mechanics UI panel, triggering update")
-        local panel = ISVehicleMechanics.instance.claimInfoPanel
-        if panel.updateInfo then
-            -- Immediate update
-            panel:updateInfo()
-            
-            -- Schedule a delayed update after 100ms to catch ModData sync from server
-            -- transmitModData() broadcasts asynchronously, so we need to wait for it
-            local function delayedUpdate()
-                if ISVehicleMechanics and ISVehicleMechanics.instance and ISVehicleMechanics.instance.claimInfoPanel then
-                    print("[VehicleClaim] Delayed update triggered")
-                    ISVehicleMechanics.instance.claimInfoPanel:updateInfo()
-                end
-            end
-            
-            -- Use a timer event to delay the update
-            Events.OnTick.Add(function()
-                delayedUpdate()
-                Events.OnTick.Remove(delayedUpdate)
-            end)
-        end
-    else
-        print("[VehicleClaim] Mechanics UI not open or no claim panel found")
-    end
 end
 
 -----------------------------------------------------------

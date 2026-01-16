@@ -58,6 +58,8 @@ function ISClaimVehicleAction:perform()
 
     local args = {
         vehicleHash = vehicleHash,
+        ownerSteamID = steamID,
+        ownerName = playerName,
         steamID = steamID,
         playerName = playerName,
         vehicleName = vehicleName

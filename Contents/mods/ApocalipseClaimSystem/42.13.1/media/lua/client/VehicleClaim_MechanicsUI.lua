@@ -92,6 +92,14 @@ end
 
 function ISVehicleClaimInfoPanel:setupEventListeners()
     -- Create event handler functions that check if event is for our vehicle
+    self.onClaimSuccessHandler = function(vehicleHash, claimData)
+        local currentHash = self.vehicle and VehicleClaim.getVehicleHash(self.vehicle)
+        if currentHash == vehicleHash then
+            print("[VehicleClaim] Claim success event for our vehicle: " .. vehicleHash)
+            self:updateInfo(claimData)
+        end
+    end
+    
     self.onClaimChangedHandler = function(vehicleHash, claimData)
         local currentHash = self.vehicle and VehicleClaim.getVehicleHash(self.vehicle)
         if currentHash == vehicleHash then
@@ -104,7 +112,8 @@ function ISVehicleClaimInfoPanel:setupEventListeners()
         local currentHash = self.vehicle and VehicleClaim.getVehicleHash(self.vehicle)
         if currentHash == vehicleHash then
             print("[VehicleClaim] Claim released event for our vehicle: " .. vehicleHash)
-            self:updateInfo(claimData)
+            -- Vehicle was released, reset UI to unclaimed state
+            self:resetToUnclaimedState()
         end
     end
     
@@ -125,6 +134,7 @@ function ISVehicleClaimInfoPanel:setupEventListeners()
     end
     
     -- Subscribe to events
+    --Events.OnVehicleClaimSuccess.Add(self.onClaimSuccessHandler)
     Events.OnVehicleClaimChanged.Add(self.onClaimChangedHandler)
     Events.OnVehicleClaimReleased.Add(self.onClaimReleasedHandler)
     Events.OnVehicleClaimAccessChanged.Add(self.onAccessChangedHandler)
@@ -135,6 +145,9 @@ end
 
 function ISVehicleClaimInfoPanel:removeEventListeners()
     -- Unsubscribe from events
+    if self.onClaimSuccessHandler then
+        Events.OnVehicleClaimSuccess.Remove(self.onClaimSuccessHandler)
+    end
     if self.onClaimChangedHandler then
         Events.OnVehicleClaimChanged.Remove(self.onClaimChangedHandler)
     end
@@ -149,6 +162,34 @@ function ISVehicleClaimInfoPanel:removeEventListeners()
     end
     
     print("[VehicleClaim] Event listeners removed")
+end
+
+function ISVehicleClaimInfoPanel:resetToUnclaimedState()
+    -- Reset UI to show unclaimed vehicle state
+    -- This is called when a vehicle is released to avoid reading stale cached data
+    
+    print("[VehicleClaim] Resetting panel to unclaimed state")
+    
+       
+    -- Show all status labels
+    if self.loadingLabel then self.loadingLabel:setVisible(false) end
+    if self.statusLabel then self.statusLabel:setVisible(true) end
+    if self.ownerLabel then self.ownerLabel:setVisible(true) end
+    if self.lastSeenLabel then self.lastSeenLabel:setVisible(true) end
+    
+    -- Set unclaimed state
+    self.statusLabel:setName(getText("UI_VehicleClaim_StatusUnclaimed"))
+    self.statusLabel:setColor(0.5, 1, 0.5)
+    self.ownerLabel:setName("")
+    self.lastSeenLabel:setName(getText("UI_VehicleClaim_AvailableToClaim"))
+    
+    -- Show claim button
+    self.actionButton:setTitle(getText("UI_VehicleClaim_ClaimButton"))
+    self.actionButton:setVisible(true)
+    self.actionButton.backgroundColor = {r=0.2, g=0.6, b=0.2, a=1}
+    
+    -- Hide manage button
+    self.manageButton:setVisible(false)
 end
 
 function ISVehicleClaimInfoPanel:updateInfo(claimData)
@@ -185,18 +226,35 @@ function ISVehicleClaimInfoPanel:updateInfo(claimData)
     
     -- Determine if claimed based on claimData
     local isClaimed = claimData ~= nil
-    local ownerID = claimData and claimData[VehicleClaim.OWNER_ID_KEY]
+    local ownerID = claimData and claimData[VehicleClaim.OWNER_KEY]
     local ownerName = claimData and claimData[VehicleClaim.OWNER_NAME_KEY]
+
+    print("[VehicleClaim] updateInfo DEBUG:")
+    local lastSeenTimestamp = claimData and claimData[VehicleClaim.LAST_SEEN_KEY]
+    print("[VehicleClaim] claimData contents:")
+    if claimData then
+        for key, value in pairs(claimData) do
+            print("  - " .. tostring(key) .. ": " .. tostring(value) .. " (type: " .. type(value) .. ")")
+        end
+    else
+        print("  - claimData is nil")
+    end
+    print("  - steamID: " .. tostring(steamID) .. " (type: " .. type(steamID) .. ")")
+    print("  - ownerID: " .. tostring(ownerID) .. " (type: " .. type(ownerID) .. ")")
+    print("  - isClaimed: " .. tostring(isClaimed))
+    print("  - ownerName: " .. tostring(ownerName))
     
-    print("[VehicleClaim] isClaimed=" .. tostring(isClaimed) .. " ownerID=" .. tostring(ownerID))
+    local isOwner = (ownerID == steamID)
+    print("  - isOwner: " .. tostring(isOwner))
     
-    local isOwner = ownerID == steamID
     local hasAccess = false
     if claimData then
         local allowedPlayers = claimData[VehicleClaim.ALLOWED_PLAYERS_KEY] or {}
         hasAccess = allowedPlayers[steamID] ~= nil
+        print("  - hasAccess: " .. tostring(hasAccess))
     end
     local isAdmin = self.player:getAccessLevel() == "admin" or self.player:getAccessLevel() == "moderator"
+    print("  - isAdmin: " .. tostring(isAdmin))
     
     if not isClaimed then
         -- Unclaimed vehicle
@@ -246,17 +304,21 @@ function ISVehicleClaimInfoPanel:updateInfo(claimData)
         
         -- Action button
         if isOwner or isAdmin then
+            print("[VehicleClaim] Showing release button (isOwner=" .. tostring(isOwner) .. ", isAdmin=" .. tostring(isAdmin) .. ")")
             self.actionButton:setTitle(getText("UI_VehicleClaim_ReleaseButton"))
             self.actionButton:setVisible(true)
             self.actionButton.backgroundColor = {r=0.8, g=0.3, b=0.3, a=1}
         else
+            print("[VehicleClaim] Hiding action button (isOwner=" .. tostring(isOwner) .. ", isAdmin=" .. tostring(isAdmin) .. ")")
             self.actionButton:setVisible(false)
         end
         
         -- Manage button
         if isOwner or isAdmin then
+            print("[VehicleClaim] Showing manage button (isOwner=" .. tostring(isOwner) .. ", isAdmin=" .. tostring(isAdmin) .. ")")
             self.manageButton:setVisible(true)
         else
+            print("[VehicleClaim] Hiding manage button (isOwner=" .. tostring(isOwner) .. ", isAdmin=" .. tostring(isAdmin) .. ")")
             self.manageButton:setVisible(false)
         end
     end
@@ -266,7 +328,8 @@ function ISVehicleClaimInfoPanel:onActionButton()
     if not self.vehicle then return end
     
     local isClaimed = VehicleClaim.isClaimed(self.vehicle)
-    
+    print("[VehicleClaim] onActionButton: self.vehicle=" .. tostring(self.vehicle))
+    print("[VehicleClaim] onActionButton: isClaimed=" .. tostring(isClaimed))
     if not isClaimed then
         -- Claim vehicle - use timed action
         local action = ISClaimVehicleAction:new(self.player, self.vehicle, VehicleClaim.CLAIM_TIME_TICKS)
@@ -307,20 +370,12 @@ function ISVehicleClaimInfoPanel:update()
         if currentVehicleHash ~= parentVehicleHash then
             print("[VehicleClaim] Vehicle changed from " .. tostring(currentVehicleHash) .. " to " .. tostring(parentVehicleHash) .. ")")
             
-            -- Clear cache for old vehicle if it exists
-            if currentVehicleHash then
-                VehicleClaim.invalidateClaimCache(currentVehicleHash)
-            end
-            
+                       
             -- Update to new vehicle
             self.vehicle = self.parent.vehicle
             self.dataRequested = false  -- Reset data request flag for new vehicle
             
-            -- Clear cache for new vehicle to force fresh read
-            if parentVehicleHash then
-                VehicleClaim.invalidateClaimCache(parentVehicleHash)
-            end
-            
+                        
             -- Request fresh data for new vehicle
             local vehicleHash = VehicleClaim.getOrCreateVehicleHash(self.vehicle)
             if vehicleHash then
@@ -432,7 +487,6 @@ local function integrateWithMechanicsUI()
                 local vehicleHash = VehicleClaim.getOrCreateVehicleHash(self.vehicle)
                 if vehicleHash then
                     -- Invalidate cache so next read will get fresh data
-                    VehicleClaim.invalidateClaimCache(vehicleHash)
                     
                     sendClientCommand(self.chr, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_REQUEST_INFO, {
                         vehicleHash = vehicleHash

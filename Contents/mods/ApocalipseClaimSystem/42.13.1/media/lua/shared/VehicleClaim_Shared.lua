@@ -151,14 +151,14 @@ end
 --- Get the claim data table from a vehicle's modData WITH CACHING
 --- NOTE: ModData is synced from server automatically via transmitModData()
 --- This function adds local caching to reduce redundant reads
---- Cache expires after CACHE_DURATION seconds
+--- Cache is valid until explicitly invalidated by events
 --- @param vehicle IsoVehicle
 --- @param forceRefresh boolean Optional - bypass cache
 --- @return table|nil claimData
 function VehicleClaim.getClaimData(vehicle, forceRefresh)
     if not vehicle then return nil end
     
-    -- Get vehicle hash for cache lookup
+    -- Get vehicle hash for cache lookup (hash is permanent and never cleared)
     local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
     if not vehicleHash and not forceRefresh then
         -- No hash yet, read directly from ModData (first interaction)
@@ -170,15 +170,12 @@ function VehicleClaim.getClaimData(vehicle, forceRefresh)
     if not forceRefresh and vehicleHash then
         local cached = VehicleClaim.claimDataCache[vehicleHash]
         if cached then
-            local age = os.time() - cached.timestamp
-            if age < VehicleClaim.CACHE_DURATION then
-                -- Cache is still valid
-                return cached.data
-            end
+            -- Cache is valid until explicitly invalidated by events
+            return cached.data
         end
     end
     
-    -- Cache miss or expired - read from ModData
+    -- Cache miss - read from ModData
     local modData = vehicle:getModData()
     if not modData then return nil end
     
@@ -195,22 +192,22 @@ function VehicleClaim.getClaimData(vehicle, forceRefresh)
     return claimData
 end
 
---- Invalidate cache for a specific vehicle
---- Call this when claim state changes (claim, release, permission change)
---- @param vehicleHash string
-function VehicleClaim.invalidateClaimCache(vehicleHash)
-    if vehicleHash then
-        VehicleClaim.claimDataCache[vehicleHash] = nil
-        VehicleClaim.log("Invalidated claim cache for " .. vehicleHash)
-    end
-end
+
 
 --- Check if a vehicle is claimed
+--- A vehicle is only claimed if it has claim data AND has a valid owner ID
+--- (Vehicle hash alone does not constitute a claim)
 --- @param vehicle IsoVehicle
 --- @return boolean
 function VehicleClaim.isClaimed(vehicle)
     local data = VehicleClaim.getClaimData(vehicle)
-    return data ~= nil and data[VehicleClaim.OWNER_KEY] ~= nil
+    if not data then
+        return false
+    end
+    
+    -- Check if ownerID exists and is not empty
+    local ownerID = data[VehicleClaim.OWNER_KEY]
+    return ownerID ~= nil and ownerID ~= ""
 end
 
 --- Get the owner's Steam ID of a claimed vehicle
@@ -218,10 +215,17 @@ end
 --- @return string|nil steamID
 function VehicleClaim.getOwnerID(vehicle)
     local data = VehicleClaim.getClaimData(vehicle)
-    if data then
-        return data[VehicleClaim.OWNER_KEY]
+    if not data then
+        return nil
     end
-    return nil
+    
+    local ownerID = data[VehicleClaim.OWNER_KEY]
+    -- Return nil if owner is empty string
+    if ownerID == "" then
+        return nil
+    end
+    
+    return ownerID
 end
 
 --- Get the owner's display name

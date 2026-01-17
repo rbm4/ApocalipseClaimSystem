@@ -8,9 +8,60 @@ require "shared/VehicleClaim_Shared"
 
 local VehicleClaimEnforcement = {}
 
+-- Cache for access checks to prevent server spam
+-- Structure: [vehicleHash] = { allowed = boolean, timestamp = number, steamID = string }
+local accessCheckCache = {}
+local CACHE_DURATION = 5  -- seconds
+
 -----------------------------------------------------------
 -- Helper Function: Check Vehicle Access
 -----------------------------------------------------------
+
+--- Check if we have a cached access result for this vehicle and player
+--- @param vehicle BaseVehicle
+--- @param steamID string
+--- @return boolean|nil  true if allowed, false if denied, nil if no cache or expired
+local function getCachedAccess(vehicle, steamID)
+    if not vehicle or not steamID then return nil end
+    
+    -- Use vehicle hash for cache key (persistent across server restarts)
+    local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
+    if not vehicleHash then return nil end
+    
+    local cached = accessCheckCache[vehicleHash]
+    if not cached then return nil end
+    
+    -- Check if cache is for the same player
+    if cached.steamID ~= steamID then return nil end
+    
+    -- Check if cache is still valid
+    local age = os.time() - cached.timestamp
+    if age > CACHE_DURATION then
+        -- Cache expired
+        accessCheckCache[vehicleHash] = nil
+        return nil
+    end
+    
+    return cached.allowed
+end
+
+--- Update access cache
+--- @param vehicle BaseVehicle
+--- @param steamID string
+--- @param allowed boolean
+local function cacheAccessResult(vehicle, steamID, allowed)
+    if not vehicle or not steamID then return end
+    
+    -- Use vehicle hash for cache key (persistent across server restarts)
+    local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
+    if not vehicleHash then return end
+    
+    accessCheckCache[vehicleHash] = {
+        allowed = allowed,
+        timestamp = os.time(),
+        steamID = steamID
+    }
+end
 
 --- Check if player has access to a vehicle
 --- @param player IsoPlayer
@@ -19,16 +70,34 @@ local VehicleClaimEnforcement = {}
 function VehicleClaimEnforcement.hasAccess(player, vehicle)
     if not player or not vehicle then return true end
     
-    -- Check if vehicle is claimed
-    if not VehicleClaim.isClaimed(vehicle) then return true end
-    
     local steamID = VehicleClaim.getPlayerSteamID(player)
     local isAdmin = player:getAccessLevel() == "admin" or player:getAccessLevel() == "moderator"
     
     -- Admins bypass all checks
     if isAdmin then return true end
     
-    return VehicleClaim.hasAccess(vehicle, steamID)
+    -- Check cached access result first
+    local cachedResult = getCachedAccess(vehicle, steamID)
+    if cachedResult ~= nil then
+        return cachedResult
+    end
+    
+    -- Check if vehicle is claimed by reading ModData (synced from server)
+    local claimData = VehicleClaim.getClaimData(vehicle)
+    
+    -- If no claim data exists, vehicle is unclaimed - allow access
+    if not claimData then
+        cacheAccessResult(vehicle, steamID, true)
+        return true
+    end
+    
+    -- Vehicle has claim data - check access
+    local hasAccess = VehicleClaim.hasAccess(vehicle, steamID)
+    
+    -- Cache the result
+    cacheAccessResult(vehicle, steamID, hasAccess)
+    
+    return hasAccess
 end
 
 --- Get denial message
@@ -107,10 +176,27 @@ local function hookVehicleEntry()
     
     local originalOnEnter = ISVehicleMenu.onEnter
     ISVehicleMenu.onEnter = function(playerObj, vehicle, seat)
+        -- Debug logging
+        local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
+        local claimData = VehicleClaim.getClaimData(vehicle)
+        local steamID = VehicleClaim.getPlayerSteamID(playerObj)
+        
+        print("[VehicleClaim] Vehicle entry attempt:")
+        print("  - Vehicle hash: " .. tostring(vehicleHash))
+        print("  - Player Steam ID: " .. tostring(steamID))
+        print("  - Claim data exists: " .. tostring(claimData ~= nil))
+        if claimData then
+            print("  - Owner ID: " .. tostring(claimData[VehicleClaim.OWNER_KEY]))
+            print("  - Owner name: " .. tostring(claimData[VehicleClaim.OWNER_NAME_KEY]))
+        end
+        
         if not VehicleClaimEnforcement.hasAccess(playerObj, vehicle) then
+            print("  - ACCESS DENIED")
             playerObj:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
             return
         end
+        
+        print("  - ACCESS GRANTED")
         return originalOnEnter(playerObj, vehicle, seat)
     end
 end
@@ -686,11 +772,47 @@ local function initializeHooks()
 end
 
 -----------------------------------------------------------
+-- Cache Invalidation on Claim Changes
+-----------------------------------------------------------
+
+--- Clear access cache for a specific vehicle
+--- @param vehicleHash string
+local function invalidateAccessCache(vehicleHash)
+    if not vehicleHash then return end
+    
+    -- Clear cache by hash directly (no need to find vehicle)
+    if accessCheckCache[vehicleHash] then
+        accessCheckCache[vehicleHash] = nil
+        print("[VehicleClaim] Cleared access cache for vehicle: " .. vehicleHash)
+    end
+end
+
+--- Event handler for claim changes
+local function onClaimChanged(vehicleHash, claimData)
+    invalidateAccessCache(vehicleHash)
+end
+
+--- Event handler for claim released
+local function onClaimReleased(vehicleHash, claimData)
+    invalidateAccessCache(vehicleHash)
+end
+
+--- Event handler for access list changes
+local function onAccessChanged(vehicleHash, claimData)
+    invalidateAccessCache(vehicleHash)
+end
+
+-----------------------------------------------------------
 -- Event Registration
 -----------------------------------------------------------
 
 -- Register context menu blocking
 Events.OnFillWorldObjectContextMenu.Add(onFillWorldObjectContextMenu)
+
+-- Register cache invalidation on claim changes
+Events.OnVehicleClaimChanged.Add(onClaimChanged)
+Events.OnVehicleClaimReleased.Add(onClaimReleased)
+Events.OnVehicleClaimAccessChanged.Add(onAccessChanged)
 
 -- Register container update blocking with error handling
 Events.OnContainerUpdate.Add(function(container)

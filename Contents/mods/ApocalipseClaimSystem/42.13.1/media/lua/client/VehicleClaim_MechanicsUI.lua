@@ -170,16 +170,7 @@ function ISVehicleClaimInfoPanel:resetToUnclaimedState()
     
     print("[VehicleClaim] Resetting panel to unclaimed state")
     
-    -- Explicitly mark vehicle as unclaimed in cache
-    -- This prevents isClaimed() from reading stale ModData
-    local vehicleHash = self.vehicle and VehicleClaim.getVehicleHash(self.vehicle)
-    if vehicleHash then
-        VehicleClaim.claimDataCache[vehicleHash] = {
-            data = nil,  -- Explicitly unclaimed
-            timestamp = os.time()
-        }
-        print("[VehicleClaim] Updated cache to unclaimed state for vehicle: " .. vehicleHash)
-    end
+    -- Server will clear ModData automatically, just update UI
     
     -- Show all status labels
     if self.loadingLabel then self.loadingLabel:setVisible(false) end
@@ -496,13 +487,17 @@ local function integrateWithMechanicsUI()
             if not self.claimInfoPanel.dataRequested then
                 local vehicleHash = VehicleClaim.getOrCreateVehicleHash(self.vehicle)
                 if vehicleHash then
-                    -- Invalidate cache so next read will get fresh data
+                    -- Clear ModData to force fresh read from server response
+                    -- This ensures we don't have stale claim data (e.g., after unclaiming from far away)
+                    local modData = self.vehicle:getModData()
+                    modData[VehicleClaim.MODDATA_KEY] = nil
                     
+                    -- Request authoritative data from server
                     sendClientCommand(self.chr, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_REQUEST_INFO, {
                         vehicleHash = vehicleHash
                     })
                     self.claimInfoPanel.dataRequested = true
-                    print("[VehicleClaim] Requested fresh claim data for vehicle " .. vehicleHash)
+                    print("[VehicleClaim] Cleared ModData and requested fresh claim data for vehicle " .. vehicleHash)
                     
                     -- Trigger immediate update to display fresh data
                     self.claimInfoPanel:updateInfo()

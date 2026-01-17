@@ -91,12 +91,7 @@ function VehicleClaimClient.onClaimSuccess(args)
     if vehicleHash and vehicleHash ~= "Unknown" then
         local claimData = args.claimData
         
-        -- Update local cache with authoritative server data
-        VehicleClaim.claimDataCache[vehicleHash] = {
-            data = claimData,
-            timestamp = os.time()
-        }
-        
+        -- Server will transmit ModData automatically, no need to cache
         --triggerEvent("OnVehicleClaimSuccess", vehicleHash, claimData)
         triggerEvent("OnVehicleClaimChanged", vehicleHash, claimData)
     end
@@ -150,9 +145,7 @@ function VehicleClaimClient.onReleaseSuccess(args)
 
     -- Trigger event for reactive components - pass nil as claimData since vehicle is now unclaimed
     if vehicleHash and vehicleHash ~= "Unknown" then
-        -- Clear cache since vehicle is now unclaimed
-        VehicleClaim.claimDataCache[vehicleHash] = nil
-        
+        -- Server will clear ModData automatically
         triggerEvent("OnVehicleClaimReleased", vehicleHash, nil)
     end
 
@@ -178,12 +171,7 @@ function VehicleClaimClient.onPlayerAdded(args)
     if vehicleHash then
         local claimData = args.claimData
         
-        -- Update local cache with updated access list
-        VehicleClaim.claimDataCache[vehicleHash] = {
-            data = claimData,
-            timestamp = os.time()
-        }
-        
+        -- Server will transmit updated ModData automatically
         triggerEvent("OnVehicleClaimAccessChanged", vehicleHash, claimData)
     end
 
@@ -204,12 +192,7 @@ function VehicleClaimClient.onPlayerRemoved(args)
     if vehicleHash then
         local claimData = args.claimData
         
-        -- Update local cache with updated access list
-        VehicleClaim.claimDataCache[vehicleHash] = {
-            data = claimData,
-            timestamp = os.time()
-        }
-        
+        -- Server will transmit updated ModData automatically
         triggerEvent("OnVehicleClaimAccessChanged", vehicleHash, claimData)
     end
 
@@ -235,13 +218,7 @@ function VehicleClaimClient.onVehicleInfo(args)
     if vehicleHash then
         local claimData = args.claimData
         
-        -- Update local cache with authoritative server data
-        -- This ensures isClaimed() and other functions read correct data
-        VehicleClaim.claimDataCache[vehicleHash] = {
-            data = claimData,
-            timestamp = os.time()
-        }
-        
+        -- Server transmits ModData automatically, no need to cache
         triggerEvent("OnVehicleInfoReceived", vehicleHash, claimData)
     end
     

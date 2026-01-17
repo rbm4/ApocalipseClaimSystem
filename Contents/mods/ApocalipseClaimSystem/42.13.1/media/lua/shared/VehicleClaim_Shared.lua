@@ -8,8 +8,6 @@ VehicleClaim = VehicleClaim or {}
 
 -- Global state tracking
 VehicleClaim.pendingActions = VehicleClaim.pendingActions or {}  -- {[vehicleHash] = actionType}
-VehicleClaim.claimDataCache = VehicleClaim.claimDataCache or {}  -- {[vehicleHash] = {data, timestamp}}
-VehicleClaim.CACHE_DURATION = 5  -- Seconds before cache expires
 
 -- Constants
 VehicleClaim.MOD_ID = "VehicleClaim"
@@ -148,48 +146,19 @@ function VehicleClaim.getVehicleHash(vehicle)
     return nil
 end
 
---- Get the claim data table from a vehicle's modData WITH CACHING
+--- Get the claim data table from a vehicle's modData
 --- NOTE: ModData is synced from server automatically via transmitModData()
---- This function adds local caching to reduce redundant reads
---- Cache is valid until explicitly invalidated by events
+--- Server is authoritative - always read from ModData (no caching)
 --- @param vehicle IsoVehicle
---- @param forceRefresh boolean Optional - bypass cache
 --- @return table|nil claimData
-function VehicleClaim.getClaimData(vehicle, forceRefresh)
+function VehicleClaim.getClaimData(vehicle)
     if not vehicle then return nil end
     
-    -- Get vehicle hash for cache lookup (hash is permanent and never cleared)
-    local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
-    if not vehicleHash and not forceRefresh then
-        -- No hash yet, read directly from ModData (first interaction)
-        local modData = vehicle:getModData()
-        return modData and modData[VehicleClaim.MODDATA_KEY] or nil
-    end
-    
-    -- Check cache if not forcing refresh
-    if not forceRefresh and vehicleHash then
-        local cached = VehicleClaim.claimDataCache[vehicleHash]
-        if cached then
-            -- Cache is valid until explicitly invalidated by events
-            return cached.data
-        end
-    end
-    
-    -- Cache miss - read from ModData
+    -- Read directly from ModData (synced by server)
     local modData = vehicle:getModData()
     if not modData then return nil end
     
-    local claimData = modData[VehicleClaim.MODDATA_KEY]
-    
-    -- Update cache
-    if vehicleHash then
-        VehicleClaim.claimDataCache[vehicleHash] = {
-            data = claimData,
-            timestamp = os.time()
-        }
-    end
-    
-    return claimData
+    return modData[VehicleClaim.MODDATA_KEY]
 end
 
 

@@ -232,6 +232,7 @@ local function syncModDataWithRegistry(vehicle)
     
     -- CASE 2: ModData has claim but registry doesn't - clear orphaned ModData
     if currentModData and not registryEntry then
+        modData[VehicleClaim.MODDATA_KEY] = nil
         vehicle:transmitModData()
         VehicleClaim.log("[Sync] Cleared orphaned ModData for vehicle hash " .. vehicleHash)
         return true
@@ -295,6 +296,8 @@ end
 --- Clear claim data from a vehicle
 --- @param vehicle IsoVehicle
 local function clearClaimData(vehicle)
+    if not vehicle then return end
+    
     -- Get hash and remove from registry (source of truth)
     local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
     if vehicleHash then
@@ -302,9 +305,11 @@ local function clearClaimData(vehicle)
         VehicleClaim.log("Removed claim from registry: " .. vehicleHash)
     end
     
-    -- Don't clear ModData here - let syncModDataWithRegistry() handle it when vehicle is next accessed
-    -- This allows releasing claims on unloaded/distant vehicles
-    -- When vehicle loads, sync will detect registry has no claim and clear the orphaned ModData (CASE 2)
+    -- Clear ModData immediately since vehicle is loaded
+    local modData = vehicle:getModData()
+    modData[VehicleClaim.MODDATA_KEY] = nil
+    vehicle:transmitModData()
+    VehicleClaim.log("Cleared ModData for vehicle: " .. tostring(vehicleHash))
 end
 
 --- Update last seen timestamp
@@ -356,8 +361,8 @@ local function handleClaimVehicle(player, args)
         return
     end
     
-    -- Sync ModData with registry before checking (ensures consistency)
-    -- syncModDataWithRegistry(vehicle)
+    -- Sync ModData with registry before checking (clears orphaned ModData if registry has no claim)
+    syncModDataWithRegistry(vehicle)
     
     -- Check proximity
     if not VehicleClaim.isWithinRange(player, vehicle) then
@@ -454,12 +459,20 @@ local function handleReleaseClaim(player, args)
     removeFromGlobalRegistry(vehicleHash)
     VehicleClaim.log("Vehicle released: Hash " .. vehicleHash .. " by " .. player:getUsername())
     
-    -- Don't clear ModData here - it will be synced when vehicle is next loaded/accessed
-    -- This allows releasing claims on unloaded vehicles without needing the vehicle object
+    -- Clear ModData if vehicle is loaded (immediate sync)
+    local vehicle = findVehicleByHash(vehicleHash)
+    if vehicle then
+        local modData = vehicle:getModData()
+        modData[VehicleClaim.MODDATA_KEY] = nil
+        vehicle:transmitModData()
+        VehicleClaim.log("Cleared ModData for loaded vehicle: " .. vehicleHash)
+    else
+        VehicleClaim.log("Vehicle unloaded, ModData will be cleared when it loads (via syncModDataWithRegistry CASE 2)")
+    end
     
     sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_RELEASE_SUCCESS, {
         vehicleHash = vehicleHash,
-        wasUnloaded = (findVehicleByHash(vehicleHash) == nil)
+        wasUnloaded = (vehicle == nil)
     })
 end
 
@@ -668,7 +681,7 @@ local function handleAdminClearAllClaims(player, args)
     local claimCount = 0
     local ownerCount = {}
     
-    for vehicleIDStr, claimData in pairs(registry) do
+    for vehicleHash, claimData in pairs(registry) do
         claimCount = claimCount + 1
         ownerCount[claimData.ownerSteamID] = (ownerCount[claimData.ownerSteamID] or 0) + 1
     end

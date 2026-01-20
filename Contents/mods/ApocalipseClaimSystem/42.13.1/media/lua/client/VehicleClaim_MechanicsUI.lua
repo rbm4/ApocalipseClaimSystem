@@ -328,9 +328,27 @@ end
 function ISVehicleClaimInfoPanel:onActionButton()
     if not self.vehicle then return end
     
+    -- Clear ModData before reading to ensure fresh server-synced data
+    local vehicleHash = VehicleClaim.getVehicleHash(self.vehicle)
+    if vehicleHash then
+        local modData = self.vehicle:getModData()
+        modData[VehicleClaim.MODDATA_KEY] = nil
+        
+        -- Request fresh data from server
+        sendClientCommand(self.player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_REQUEST_INFO, {
+            vehicleHash = vehicleHash
+        })
+        
+        -- Wait a tiny bit for server response before checking claim state
+        -- This ensures we have the most current data
+        print("[VehicleClaim] Cleared ModData and requesting fresh data before action")
+    end
+    
+    -- Read claim state (will be from server response if it arrived, or will be nil/fresh)
     local isClaimed = VehicleClaim.isClaimed(self.vehicle)
     print("[VehicleClaim] onActionButton: self.vehicle=" .. tostring(self.vehicle))
     print("[VehicleClaim] onActionButton: isClaimed=" .. tostring(isClaimed))
+    
     if not isClaimed then
         -- Claim vehicle - use timed action
         local action = ISClaimVehicleAction:new(self.player, self.vehicle, VehicleClaim.CLAIM_TIME_TICKS)

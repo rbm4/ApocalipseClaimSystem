@@ -528,10 +528,12 @@ local function handleAddPlayer(player, args)
         
         VehicleClaim.log("Added " .. targetPlayerName .. " to vehicle access")
         
+        -- Send back full claimData so UI can refresh
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_PLAYER_ADDED, {
             vehicleHash = vehicleHash,
             addedSteamID = targetSteamID,
-            addedPlayerName = targetPlayerName
+            addedPlayerName = targetPlayerName,
+            claimData = claimData  -- Include full claim data for UI update
         })
     end
 end
@@ -577,10 +579,12 @@ local function handleRemovePlayer(player, args)
         
         VehicleClaim.log("Removed " .. removedName .. " from vehicle access")
         
+        -- Send back full claimData so UI can refresh
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_PLAYER_REMOVED, {
             vehicleHash = vehicleHash,
             removedSteamID = targetSteamID,
-            removedPlayerName = removedName
+            removedPlayerName = removedName,
+            claimData = claimData  -- Include full claim data for UI update
         })
     end
 end

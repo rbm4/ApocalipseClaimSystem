@@ -75,6 +75,11 @@ function VehicleClaimEnforcement.hasAccess(player, vehicle)
     
     -- Admins bypass all checks
     if isAdmin then return true end
+
+    -- NEW: Check if ModData is ready
+    if not vehicle:getModData() then
+        return false  -- DENY until ModData exists
+    end
     
     -- Check cached access result first
     local cachedResult = getCachedAccess(vehicle, steamID)

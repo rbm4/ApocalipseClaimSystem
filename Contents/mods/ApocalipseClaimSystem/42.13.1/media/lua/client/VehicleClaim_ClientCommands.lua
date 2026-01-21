@@ -75,7 +75,7 @@ function VehicleClaimClient.onClaimSuccess(args)
 
     -- Show notification to player
     if player then
-        player:Say("Successfully claimed vehicle: " .. tostring(vehicleHash))
+        player:Say(getText("UI_VehicleClaim_SuccessfullyClaimed", tostring(vehicleHash)))
     end
 
     -- Trigger events for reactive components
@@ -99,18 +99,18 @@ function VehicleClaimClient.onClaimFailed(args)
         end
     end
 
-    local message = "Claim failed: "
+    local message = getText("UI_VehicleClaim_ClaimFailedPrefix")
 
     if reason == VehicleClaim.ERR_ALREADY_CLAIMED then
-        message = message .. "Vehicle is already claimed"
+        message = message .. getText("UI_VehicleClaim_VehicleIsAlreadyClaimed")
     elseif reason == VehicleClaim.ERR_VEHICLE_NOT_FOUND then
-        message = message .. "Vehicle not found"
+        message = message .. getText("UI_VehicleClaim_VehicleNotFoundError")
     elseif reason == VehicleClaim.ERR_TOO_FAR then
-        message = message .. "Too far from vehicle"
+        message = message .. getText("UI_VehicleClaim_TooFarFromVehicle")
     elseif reason == VehicleClaim.ERR_CLAIM_LIMIT_REACHED then
         local current = args.currentClaims or 0
         local max = args.maxClaims or 0
-        message = string.format("Claim limit reached (%d/%d vehicles)", current, max)
+        message = getText("UI_VehicleClaim_ClaimLimitReachedFormat", tostring(current), tostring(max))
     else
         message = message .. reason
     end
@@ -126,7 +126,7 @@ function VehicleClaimClient.onReleaseSuccess(args)
     local player = getPlayer()
 
     if player then
-        player:Say("Released claim on vehicle: " .. tostring(vehicleHash))
+        player:Say(getText("UI_VehicleClaim_ReleasedClaimOnVehicle", tostring(vehicleHash)))
     end
 
     -- Trigger event for reactive components

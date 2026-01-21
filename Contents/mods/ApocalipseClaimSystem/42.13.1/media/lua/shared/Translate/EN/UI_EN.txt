@@ -47,8 +47,10 @@ UI_EN = {
     
     -- Messages
     UI_VehicleClaim_ClaimSuccess = "Successfully claimed %1",
+    UI_VehicleClaim_SuccessfullyClaimed = "Successfully claimed vehicle: %1",
     UI_VehicleClaim_ClaimFailed = "Claim failed: %1",
     UI_VehicleClaim_ReleasedClaim = "Released claim on %1",
+    UI_VehicleClaim_ReleasedClaimOnVehicle = "Released claim on vehicle: %1",
     UI_VehicleClaim_PlayerAdded = "%1 added to allowed players",
     UI_VehicleClaim_PlayerRemoved = "%1 removed from allowed players",
     UI_VehicleClaim_VehicleBelongsTo = "This vehicle belongs to %1",
@@ -60,6 +62,11 @@ UI_EN = {
     UI_VehicleClaim_PlayerNotFound = "Player not found",
     UI_VehicleClaim_ClaimLimitReached = "Claim limit reached (%1/%2 vehicles)",
     UI_VehicleClaim_UnknownError = "Unknown error",
+    UI_VehicleClaim_ClaimFailedPrefix = "Claim failed: ",
+    UI_VehicleClaim_VehicleIsAlreadyClaimed = "Vehicle is already claimed",
+    UI_VehicleClaim_VehicleNotFoundError = "Vehicle not found",
+    UI_VehicleClaim_TooFarFromVehicle = "Too far from vehicle",
+    UI_VehicleClaim_ClaimLimitReachedFormat = "Claim limit reached (%1/%2 vehicles)",
     
     -- Unloaded vehicle messages
     UI_VehicleClaim_NotLoaded = "Not loaded",

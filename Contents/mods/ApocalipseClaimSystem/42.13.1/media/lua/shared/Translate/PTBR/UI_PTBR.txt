@@ -47,8 +47,10 @@ UI_PT = {
     
     -- Messages
     UI_VehicleClaim_ClaimSuccess = "Reivindicacao de %1 bem-sucedida",
+    UI_VehicleClaim_SuccessfullyClaimed = "Veiculo reivindicado com sucesso: %1",
     UI_VehicleClaim_ClaimFailed = "Falha na reivindicacao: %1",
     UI_VehicleClaim_ReleasedClaim = "Reivindicacao liberada de %1",
+    UI_VehicleClaim_ReleasedClaimOnVehicle = "Reivindicacao liberada do veiculo: %1",
     UI_VehicleClaim_PlayerAdded = "%1 adicionado aos jogadores permitidos",
     UI_VehicleClaim_PlayerRemoved = "%1 removido dos jogadores permitidos",
     UI_VehicleClaim_VehicleBelongsTo = "Este veiculo pertence a %1",
@@ -60,6 +62,11 @@ UI_PT = {
     UI_VehicleClaim_PlayerNotFound = "Jogador nao encontrado",
     UI_VehicleClaim_ClaimLimitReached = "Limite de reivindicacoes atingido (%1/%2 veiculos)",
     UI_VehicleClaim_UnknownError = "Erro desconhecido",
+    UI_VehicleClaim_ClaimFailedPrefix = "Falha na reivindicacao: ",
+    UI_VehicleClaim_VehicleIsAlreadyClaimed = "Veiculo ja esta reivindicado",
+    UI_VehicleClaim_VehicleNotFoundError = "Veiculo nao encontrado",
+    UI_VehicleClaim_TooFarFromVehicle = "Muito longe do veiculo",
+    UI_VehicleClaim_ClaimLimitReachedFormat = "Limite de reivindicacoes atingido (%1/%2 veiculos)",
     
     -- Unloaded vehicle messages
     UI_VehicleClaim_NotLoaded = "Nao carregado",

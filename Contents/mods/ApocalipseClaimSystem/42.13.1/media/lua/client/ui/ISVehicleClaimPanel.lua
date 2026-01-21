@@ -385,6 +385,27 @@ function ISVehicleClaimPanel:onRemovePlayer()
 end
 
 function ISVehicleClaimPanel:onReleaseClaim()
+    -- Check if vehicle is loaded and player is nearby
+    if not self.vehicle then
+        -- Vehicle not loaded - cannot unclaim from far away
+        local modal = ISModalDialog:new(self.x + 50, self.y + 100, 350, 120, 
+            "You must be near the vehicle to release the claim.\n\nVehicle is not currently loaded.", 
+            false, nil, nil)
+        modal:initialise()
+        modal:addToUIManager()
+        return
+    end
+    
+    -- Check proximity
+    if not VehicleClaim.isWithinRange(self.player, self.vehicle) then
+        local modal = ISModalDialog:new(self.x + 50, self.y + 100, 350, 120, 
+            "You must be near the vehicle to release the claim.\n\nYou are too far away.", 
+            false, nil, nil)
+        modal:initialise()
+        modal:addToUIManager()
+        return
+    end
+    
     -- Confirm action
     local modal = ISModalDialog:new(self.x + 50, self.y + 100, 280, 100, getText("UI_VehicleClaim_ReleaseConfirm"),
         true, self, ISVehicleClaimPanel.onReleaseConfirm)

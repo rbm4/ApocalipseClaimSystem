@@ -206,18 +206,12 @@ function ISVehicleClaimInfoPanel:updateInfo(claimData)
         return 
     end
     
-    local vehicleHash = VehicleClaim.getVehicleHash(self.vehicle)
-    if not vehicleHash then
-        print("[VehicleClaim] updateInfo: No vehicle hash")
-        return
-    end
-    
-    -- If no claim data provided, read from vehicle ModData
+    -- Read directly from vehicle ModData (single source of truth)
     if not claimData then
         claimData = VehicleClaim.getClaimData(self.vehicle)
     end
     
-    -- Show all status labels (no more loading state needed)
+    -- Show all status labels
     if self.loadingLabel then self.loadingLabel:setVisible(false) end
     if self.statusLabel then self.statusLabel:setVisible(true) end
     if self.ownerLabel then self.ownerLabel:setVisible(true) end
@@ -328,23 +322,7 @@ end
 function ISVehicleClaimInfoPanel:onActionButton()
     if not self.vehicle then return end
     
-    -- Clear ModData before reading to ensure fresh server-synced data
-    local vehicleHash = VehicleClaim.getVehicleHash(self.vehicle)
-    if vehicleHash then
-        local modData = self.vehicle:getModData()
-        modData[VehicleClaim.MODDATA_KEY] = nil
-        
-        -- Request fresh data from server
-        sendClientCommand(self.player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_REQUEST_INFO, {
-            vehicleHash = vehicleHash
-        })
-        
-        -- Wait a tiny bit for server response before checking claim state
-        -- This ensures we have the most current data
-        print("[VehicleClaim] Cleared ModData and requesting fresh data before action")
-    end
-    
-    -- Read claim state (will be from server response if it arrived, or will be nil/fresh)
+    -- Read claim state directly from vehicle ModData
     local isClaimed = VehicleClaim.isClaimed(self.vehicle)
     print("[VehicleClaim] onActionButton: self.vehicle=" .. tostring(self.vehicle))
     print("[VehicleClaim] onActionButton: isClaimed=" .. tostring(isClaimed))
@@ -380,45 +358,21 @@ end
 function ISVehicleClaimInfoPanel:update()
     ISPanel.update(self)
     
-    -- Get vehicle reference from parent if we don't have it, or if parent's vehicle changed
+    -- Get vehicle reference from parent and update UI when vehicle changes
     if self.parent and self.parent.vehicle then
-        local parentVehicleHash = VehicleClaim.getVehicleHash(self.parent.vehicle)
-        local currentVehicleHash = self.vehicle and VehicleClaim.getVehicleHash(self.vehicle) or nil
-        
-        -- Detect vehicle change
-        if currentVehicleHash ~= parentVehicleHash then
-            print("[VehicleClaim] Vehicle changed from " .. tostring(currentVehicleHash) .. " to " .. tostring(parentVehicleHash) .. ")")
-            
-                       
-            -- Update to new vehicle
+        if self.vehicle ~= self.parent.vehicle then
+            -- Vehicle reference changed (first time or different vehicle)
+            print("[VehicleClaim] Vehicle changed to: " .. tostring(self.parent.vehicle))
             self.vehicle = self.parent.vehicle
-            self.dataRequested = false  -- Reset data request flag for new vehicle
             
-                        
-            -- Request fresh data for new vehicle
-            local vehicleHash = VehicleClaim.getOrCreateVehicleHash(self.vehicle)
-            if vehicleHash then
-                sendClientCommand(self.player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_REQUEST_INFO, {
-                    vehicleHash = vehicleHash
-                })
-                self.dataRequested = true
-            end
-            
-            -- Trigger immediate update for new vehicle
+            -- Update UI to reflect new vehicle's claim status
             self:updateInfo()
-        elseif not self.vehicle then
-            self.vehicle = self.parent.vehicle
-            self.dataRequested = false  -- Make sure we request data for first-time vehicle
-            print("[VehicleClaim] Got vehicle reference from parent: " .. tostring(VehicleClaim.getVehicleHash(self.vehicle)))
-        end
-    end
-    
-    -- Update vehicle hash label if vehicle is available
-    if self.vehicle and self.vehicleIDLabel then
-        local vehicleHash = VehicleClaim.getVehicleHash(self.vehicle) or "Not Generated"
-        local currentText = getText("UI_VehicleClaim_VehicleIDLabel", vehicleHash)
-        if self.vehicleIDLabel:getName() ~= currentText then
-            self.vehicleIDLabel:setName(currentText)
+            
+            -- Update vehicle hash label
+            if self.vehicleIDLabel then
+                local vehicleHash = VehicleClaim.getVehicleHash(self.vehicle) or "Not Generated"
+                self.vehicleIDLabel:setName(getText("UI_VehicleClaim_VehicleIDLabel", vehicleHash))
+            end
         end
     end
 end
@@ -438,8 +392,6 @@ function ISVehicleClaimInfoPanel:close()
     -- Unsubscribe from events when panel closes
     self:removeEventListeners()
     
-    -- Reset data request flag so it refreshes when reopened
-    self.dataRequested = false
     ISPanel.close(self)
 end
 
@@ -495,42 +447,16 @@ local function integrateWithMechanicsUI()
         print("[VehicleClaim] Claim info panel added to vehicle mechanics window")
     end
 
-    -- Hook prerender to sync data when window opens
+    -- Hook prerender for any additional rendering needs
     ISVehicleMechanics.prerender = function(self)
         original_prerender(self)
         
-        -- Request fresh data from server when mechanics UI is open
-        if self.claimInfoPanel and self.vehicle then
-            -- Only request once when window first opens
-            if not self.claimInfoPanel.dataRequested then
-                local vehicleHash = VehicleClaim.getOrCreateVehicleHash(self.vehicle)
-                if vehicleHash then
-                    -- Clear ModData to force fresh read from server response
-                    -- This ensures we don't have stale claim data (e.g., after unclaiming from far away)
-                    local modData = self.vehicle:getModData()
-                    modData[VehicleClaim.MODDATA_KEY] = nil
-                    
-                    -- Request authoritative data from server
-                    sendClientCommand(self.chr, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_REQUEST_INFO, {
-                        vehicleHash = vehicleHash
-                    })
-                    self.claimInfoPanel.dataRequested = true
-                    print("[VehicleClaim] Cleared ModData and requested fresh claim data for vehicle " .. vehicleHash)
-                    
-                    -- Trigger immediate update to display fresh data
-                    self.claimInfoPanel:updateInfo()
-                end
-            end
-        end
+        -- Panel will read ModData directly when needed
+        -- No need to request info from server
     end
     
     -- Hook close to reset panel state when window closes
     ISVehicleMechanics.close = function(self)
-        -- Reset panel state for next open
-        if self.claimInfoPanel then
-            self.claimInfoPanel.dataRequested = false
-        end
-        
         original_close(self)
     end
     

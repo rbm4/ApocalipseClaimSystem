@@ -119,8 +119,6 @@ function VehicleClaim.getOrCreateVehicleHash(vehicle)
     vehicle:transmitModData()
     vehicle:saveToVehicleTable()
     
-    VehicleClaim.log("Generated new vehicle hash: " .. vehicleHash .. " for " .. scriptName)
-    
     return vehicleHash
 end
 
@@ -147,14 +145,14 @@ function VehicleClaim.getVehicleHash(vehicle)
 end
 
 --- Get the claim data table from a vehicle's modData
---- NOTE: ModData is synced from server automatically via transmitModData()
---- Server is authoritative - always read from ModData (no caching)
+--- ModData is the single source of truth for claim data
+--- Server transmits changes automatically via transmitModData()
 --- @param vehicle IsoVehicle
 --- @return table|nil claimData
 function VehicleClaim.getClaimData(vehicle)
     if not vehicle then return nil end
     
-    -- Read directly from ModData (synced by server)
+    -- Read directly from vehicle's ModData
     local modData = vehicle:getModData()
     if not modData then return nil end
     

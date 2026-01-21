@@ -255,14 +255,27 @@ function ISVehicleClaimListPanel:onManageVehicle()
     local vehicleHash = item.item.vehicleHash
     local claimData = item.item.claimData
     
-    -- Open management panel with only vehicleHash and claim data (no vehicle reference)
+    -- Try to find the vehicle in the world to check proximity
+    local vehicle = nil
+    local vehicles = getCell():getVehicles()
+    if vehicles then
+        for i = 0, vehicles:size() - 1 do
+            local v = vehicles:get(i)
+            if v and VehicleClaim.getVehicleHash(v) == vehicleHash then
+                vehicle = v
+                break
+            end
+        end
+    end
+    
+    -- Open management panel with vehicle reference if found
     local panel = ISVehicleClaimPanel:new(
         self.x + 50,
         self.y + 50,
         400,
         440,
         self.player,
-        nil,  -- No vehicle reference from list panel
+        vehicle,  -- Will be nil if vehicle is not loaded
         vehicleHash,
         claimData
     )

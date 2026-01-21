@@ -72,32 +72,18 @@ function VehicleClaimClient.onClaimSuccess(args)
     local player = getPlayer()
 
     print("[VehicleClaim] onClaimSuccess - vehicleHash: " .. tostring(vehicleHash))
-    print("[VehicleClaim] onClaimSuccess - received args:")
-    for k, v in pairs(args) do
-        print("  - " .. tostring(k) .. " = " .. tostring(v) .. " (type: " .. type(v) .. ")")
-        if type(v) == "table" then
-            for k2, v2 in pairs(v) do
-                print("    - " .. tostring(k2) .. " = " .. tostring(v2))
-            end
-        end
-    end
 
     -- Show notification to player
     if player then
         player:Say("Successfully claimed vehicle: " .. tostring(vehicleHash))
     end
 
-    -- Trigger events for reactive components with claim data from server response
+    -- Trigger events for reactive components
+    -- Server has already transmitted ModData, UI components will read it directly
     if vehicleHash and vehicleHash ~= "Unknown" then
         local claimData = args.claimData
-        
-        -- Server will transmit ModData automatically, no need to cache
-        --triggerEvent("OnVehicleClaimSuccess", vehicleHash, claimData)
         triggerEvent("OnVehicleClaimChanged", vehicleHash, claimData)
     end
-
-    -- Refresh any open UI panels
-    -- VehicleClaimClient.refreshOpenPanels()
 end
 
 --- Handle failed claim attempt
@@ -143,9 +129,9 @@ function VehicleClaimClient.onReleaseSuccess(args)
         player:Say("Released claim on vehicle: " .. tostring(vehicleHash))
     end
 
-    -- Trigger event for reactive components - pass nil as claimData since vehicle is now unclaimed
+    -- Trigger event for reactive components
+    -- Server has already cleared ModData
     if vehicleHash and vehicleHash ~= "Unknown" then
-        -- Server will clear ModData automatically
         triggerEvent("OnVehicleClaimReleased", vehicleHash, nil)
     end
 
@@ -167,11 +153,10 @@ function VehicleClaimClient.onPlayerAdded(args)
         player:Say("Added " .. playerName .. " to vehicle access")
     end
 
-    -- Trigger event for reactive components with updated claim data
+    -- Trigger event for reactive components
+    -- Server has already transmitted updated ModData
     if vehicleHash then
         local claimData = args.claimData
-        
-        -- Server will transmit updated ModData automatically
         triggerEvent("OnVehicleClaimAccessChanged", vehicleHash, claimData)
     end
 
@@ -188,11 +173,10 @@ function VehicleClaimClient.onPlayerRemoved(args)
         player:Say("Removed " .. playerName .. " from vehicle access")
     end
 
-    -- Trigger event for reactive components with updated claim data
+    -- Trigger event for reactive components
+    -- Server has already transmitted updated ModData
     if vehicleHash then
         local claimData = args.claimData
-        
-        -- Server will transmit updated ModData automatically
         triggerEvent("OnVehicleClaimAccessChanged", vehicleHash, claimData)
     end
 
@@ -210,15 +194,17 @@ function VehicleClaimClient.onAccessDenied(args)
     end
 end
 
---- Handle vehicle info response (for UI panel)
+--- Handle vehicle info response (DEPRECATED - clients now read ModData directly)
 function VehicleClaimClient.onVehicleInfo(args)
+    -- This is kept for backwards compatibility but should not be used
+    -- Clients should read vehicle ModData directly instead of requesting info
+    VehicleClaim.log("onVehicleInfo called (deprecated - read ModData directly)")
+    
     local vehicleHash = args.vehicleHash
     
-    -- Trigger event for reactive components with claim data
+    -- Trigger event for backwards compatibility
     if vehicleHash then
         local claimData = args.claimData
-        
-        -- Server transmits ModData automatically, no need to cache
         triggerEvent("OnVehicleInfoReceived", vehicleHash, claimData)
     end
     
@@ -304,33 +290,23 @@ function VehicleClaimClient.getCachedClaims()
         VehicleClaimClient.cachedMaxClaims or 5
 end
 
---- Request vehicle info from server (for UI sync)
+--- Request vehicle info from server (DEPRECATED - clients should read ModData directly)
 --- @param vehicle IsoVehicle
 --- @param callback function Callback to receive response
 function VehicleClaimClient.requestVehicleInfo(vehicle, callback)
-    if not vehicle then
-        return
-    end
-
-    local player = getPlayer()
-    if not player then
-        return
-    end
-
-    VehicleClaimClient.pendingInfoCallback = callback
-
-    local vehicleHash = VehicleClaim.getOrCreateVehicleHash(vehicle)
-    if not vehicleHash then
-        VehicleClaim.log("ERROR: Could not get vehicle hash for info request")
-        return
-    end
+    -- This function is deprecated - clients should read vehicle ModData directly
+    -- Kept for backwards compatibility only
+    VehicleClaim.log("requestVehicleInfo called (deprecated - read ModData directly)")
     
-    local args = {
-        vehicleHash = vehicleHash,
-        steamID = VehicleClaim.getPlayerSteamID(player)
-    }
-
-    sendClientCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_REQUEST_INFO, args)
+    if callback and vehicle then
+        -- Just call callback with ModData
+        local claimData = VehicleClaim.getClaimData(vehicle)
+        local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
+        callback({
+            vehicleHash = vehicleHash,
+            claimData = claimData
+        })
+    end
 end
 
 --- Request to add a player to vehicle access

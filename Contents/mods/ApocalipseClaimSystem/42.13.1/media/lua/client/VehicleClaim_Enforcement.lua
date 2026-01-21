@@ -76,18 +76,18 @@ function VehicleClaimEnforcement.hasAccess(player, vehicle)
     -- Admins bypass all checks
     if isAdmin then return true end
 
-    -- NEW: Check if ModData is ready
+    -- Check if ModData is ready
     if not vehicle:getModData() then
         return false  -- DENY until ModData exists
     end
     
-    -- Check cached access result first
+    -- Check cached access result first (short cache to reduce calls)
     local cachedResult = getCachedAccess(vehicle, steamID)
     if cachedResult ~= nil then
         return cachedResult
     end
     
-    -- Check if vehicle is claimed by reading ModData (synced from server)
+    -- Read claim data directly from vehicle ModData (single source of truth)
     local claimData = VehicleClaim.getClaimData(vehicle)
     
     -- If no claim data exists, vehicle is unclaimed - allow access

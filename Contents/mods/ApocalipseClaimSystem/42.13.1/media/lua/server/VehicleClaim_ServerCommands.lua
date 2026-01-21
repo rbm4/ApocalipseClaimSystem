@@ -371,24 +371,6 @@ local function handleReleaseClaim(player, args)
         return
     end
     
-    -- Check global registry to verify ownership
-    local registry = getGlobalRegistry()
-    local registryEntry = registry[vehicleHash]
-    
-    if not registryEntry then
-        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
-            reason = VehicleClaim.ERR_VEHICLE_NOT_FOUND
-        })
-        return
-    end
-    
-    if registryEntry.ownerSteamID ~= steamID and not isAdmin(player) then
-        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
-            reason = VehicleClaim.ERR_NOT_OWNER
-        })
-        return
-    end
-    
     -- Find vehicle to check proximity (REQUIRED - must be near vehicle to unclaim)
     local vehicle = findVehicleByHash(vehicleHash)
     if not vehicle then
@@ -408,15 +390,41 @@ local function handleReleaseClaim(player, args)
         return
     end
     
-    -- Remove from both registry and ModData
-    removeFromGlobalRegistry(vehicleHash)
-    VehicleClaim.log("Vehicle released: Hash " .. vehicleHash .. " by " .. player:getUsername())
+    -- Read claim data from vehicle ModData (source of truth for ownership)
+    local claimData = VehicleClaim.getClaimData(vehicle)
+    
+    if not claimData then
+        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
+            reason = "Vehicle is not claimed"
+        })
+        VehicleClaim.log("Release rejected: Vehicle has no claim data")
+        return
+    end
+    
+    -- Verify ownership from ModData (lenient - supports legacy data)
+    local ownerSteamID = claimData[VehicleClaim.OWNER_KEY]
+    if ownerSteamID ~= steamID and not isAdmin(player) then
+        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
+            reason = VehicleClaim.ERR_NOT_OWNER
+        })
+        VehicleClaim.log("Release rejected: Player is not the owner (from ModData)")
+        return
+    end
     
     -- Clear ModData (vehicle is loaded and player is nearby)
     local modData = vehicle:getModData()
     modData[VehicleClaim.MODDATA_KEY] = nil
     vehicle:transmitModData()
     VehicleClaim.log("Cleared ModData for vehicle: " .. vehicleHash)
+    
+    -- Remove from global registry if present (lenient - may not exist for legacy claims)
+    local registry = getGlobalRegistry()
+    if registry[vehicleHash] then
+        removeFromGlobalRegistry(vehicleHash)
+        VehicleClaim.log("Vehicle released from registry: Hash " .. vehicleHash .. " by " .. player:getUsername())
+    else
+        VehicleClaim.log("Vehicle released (legacy claim - no registry entry): Hash " .. vehicleHash .. " by " .. player:getUsername())
+    end
     
     sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_RELEASE_SUCCESS, {
         vehicleHash = vehicleHash

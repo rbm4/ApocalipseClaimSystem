@@ -111,6 +111,14 @@ function VehicleClaimClient.onClaimFailed(args)
         local current = args.currentClaims or 0
         local max = args.maxClaims or 0
         message = getText("UI_VehicleClaim_ClaimLimitReachedFormat", tostring(current), tostring(max))
+    elseif reason == VehicleClaim.ERR_VEHICLE_NOT_LOADED then
+        message = message .. getText("UI_VehicleClaim_VehicleNotLoadedError")
+    elseif reason == VehicleClaim.ERR_VEHICLE_NOT_CLAIMED then
+        message = message .. getText("UI_VehicleClaim_VehicleNotClaimedError")
+    elseif reason == VehicleClaim.ERR_INIT_FAILED then
+        message = message .. getText("UI_VehicleClaim_InitializationFailedError")
+    elseif reason == VehicleClaim.ERR_PLAYER_NOT_FOUND then
+        message = message .. getText("UI_VehicleClaim_PlayerNotFound")
     else
         message = message .. reason
     end

@@ -53,6 +53,9 @@ VehicleClaim.ERR_TOO_FAR = "tooFar"
 VehicleClaim.ERR_PLAYER_NOT_FOUND = "playerNotFound"
 VehicleClaim.ERR_CLAIM_LIMIT_REACHED = "claimLimitReached"
 VehicleClaim.ERR_NOT_ADMIN = "notAdmin"
+VehicleClaim.ERR_VEHICLE_NOT_LOADED = "vehicleNotLoaded"
+VehicleClaim.ERR_VEHICLE_NOT_CLAIMED = "vehicleNotClaimed"
+VehicleClaim.ERR_INIT_FAILED = "initializationFailed"
 
 -- Sandbox settings
 VehicleClaim.DEFAULT_MAX_CLAIMS = 3

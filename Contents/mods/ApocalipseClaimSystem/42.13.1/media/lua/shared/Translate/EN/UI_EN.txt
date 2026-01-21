@@ -67,6 +67,9 @@ UI_EN = {
     UI_VehicleClaim_VehicleNotFoundError = "Vehicle not found",
     UI_VehicleClaim_TooFarFromVehicle = "Too far from vehicle",
     UI_VehicleClaim_ClaimLimitReachedFormat = "Claim limit reached (%1/%2 vehicles)",
+    UI_VehicleClaim_VehicleNotLoadedError = "Vehicle not loaded. You must be near the vehicle.",
+    UI_VehicleClaim_VehicleNotClaimedError = "Vehicle is not claimed",
+    UI_VehicleClaim_InitializationFailedError = "Failed to initialize claim",
     
     -- Unloaded vehicle messages
     UI_VehicleClaim_NotLoaded = "Not loaded",
@@ -91,4 +94,8 @@ UI_EN = {
     UI_VehicleClaim_LastSeenRecently = "Last seen: Recently",
     UI_VehicleClaim_AccessGranted = "Access: Granted",
     UI_VehicleClaim_NoAccess = "Access: Denied",
+    
+    -- Vehicle List Display
+    UI_VehicleClaim_VehicleListItem = "Vehicle %1 - (%2, %3)",
+    UI_VehicleClaim_VehicleListItemWithDistance = "Vehicle %1 - (%2, %3) [%4 tiles]",
 }

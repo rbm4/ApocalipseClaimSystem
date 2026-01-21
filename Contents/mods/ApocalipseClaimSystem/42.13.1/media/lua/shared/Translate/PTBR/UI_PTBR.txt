@@ -67,6 +67,9 @@ UI_PT = {
     UI_VehicleClaim_VehicleNotFoundError = "Veiculo nao encontrado",
     UI_VehicleClaim_TooFarFromVehicle = "Muito longe do veiculo",
     UI_VehicleClaim_ClaimLimitReachedFormat = "Limite de reivindicacoes atingido (%1/%2 veiculos)",
+    UI_VehicleClaim_VehicleNotLoadedError = "Veiculo nao carregado. Voce deve estar perto do veiculo.",
+    UI_VehicleClaim_VehicleNotClaimedError = "Veiculo nao esta reivindicado",
+    UI_VehicleClaim_InitializationFailedError = "Falha ao inicializar reivindicacao",
     
     -- Unloaded vehicle messages
     UI_VehicleClaim_NotLoaded = "Nao carregado",
@@ -91,4 +94,8 @@ UI_PT = {
     UI_VehicleClaim_LastSeenRecently = "Visto pela ultima vez: Recentemente",
     UI_VehicleClaim_AccessGranted = "Acesso: Concedido",
     UI_VehicleClaim_NoAccess = "Acesso: Negado",
+    
+    -- Vehicle List Display
+    UI_VehicleClaim_VehicleListItem = "Veiculo %1 - (%2, %3)",
+    UI_VehicleClaim_VehicleListItemWithDistance = "Veiculo %1 - (%2, %3) [%4 M]",
 }

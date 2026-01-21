@@ -105,7 +105,8 @@ end
 --- @param ownerName string
 --- @param x number
 --- @param y number
-local function addToGlobalRegistry(vehicleHash, ownerSteamID, ownerName, x, y)
+--- @param allowedPlayers table|nil Optional allowed players table
+local function addToGlobalRegistry(vehicleHash, ownerSteamID, ownerName, x, y, allowedPlayers)
     local registry = getGlobalRegistry()
     registry[vehicleHash] = {
         vehicleHash = vehicleHash,
@@ -113,7 +114,8 @@ local function addToGlobalRegistry(vehicleHash, ownerSteamID, ownerName, x, y)
         ownerName = ownerName,
         x = x,
         y = y,
-        claimTime = VehicleClaim.getCurrentTimestamp()
+        claimTime = VehicleClaim.getCurrentTimestamp(),
+        allowedPlayers = allowedPlayers or {}
     }
     ModData.transmit(VehicleClaim.GLOBAL_REGISTRY_KEY)
 end
@@ -140,6 +142,18 @@ local function updateRegistryPosition(vehicleHash, x, y)
     end
 end
 
+--- Update allowed players in global registry
+--- @param vehicleHash string
+--- @param allowedPlayers table
+local function updateRegistryAllowedPlayers(vehicleHash, allowedPlayers)
+    local registry = getGlobalRegistry()
+    local entry = registry[vehicleHash]
+    if entry then
+        entry.allowedPlayers = allowedPlayers or {}
+        ModData.transmit(VehicleClaim.GLOBAL_REGISTRY_KEY)
+    end
+end
+
 --- Get all claims for a specific player from global registry
 --- @param steamID string
 --- @return table claims
@@ -158,17 +172,8 @@ local function getPlayerClaimsFromRegistry(steamID)
                 y = claimData.y,
                 claimTime = claimData.claimTime,
                 lastSeen = claimData.lastSeen,
-                allowedPlayers = {}
+                allowedPlayers = claimData.allowedPlayers or {}  -- Use from registry
             }
-            
-            -- Try to get allowed players from the loaded vehicle if available
-            local vehicle = findVehicleByHash(claimData.vehicleHash)
-            if vehicle then
-                local vehicleClaimData = VehicleClaim.getClaimData(vehicle)
-                if vehicleClaimData then
-                    claimEntry.allowedPlayers = vehicleClaimData[VehicleClaim.ALLOWED_PLAYERS_KEY] or {}
-                end
-            end
             
             table.insert(playerClaims, claimEntry)
         end
@@ -348,7 +353,7 @@ local function handleClaimVehicle(player, args)
     else
         VehicleClaim.log("ERROR: Failed to initialize claim data")
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
-            reason = "Failed to initialize claim"
+            reason = VehicleClaim.ERR_INIT_FAILED
         })
     end
 end
@@ -375,7 +380,7 @@ local function handleReleaseClaim(player, args)
     local vehicle = findVehicleByHash(vehicleHash)
     if not vehicle then
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
-            reason = "Vehicle not loaded. You must be near the vehicle to release the claim."
+            reason = VehicleClaim.ERR_VEHICLE_NOT_LOADED
         })
         VehicleClaim.log("Release rejected: Vehicle not loaded (player must be nearby)")
         return
@@ -395,7 +400,7 @@ local function handleReleaseClaim(player, args)
     
     if not claimData then
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
-            reason = "Vehicle is not claimed"
+            reason = VehicleClaim.ERR_VEHICLE_NOT_CLAIMED
         })
         VehicleClaim.log("Release rejected: Vehicle has no claim data")
         return
@@ -449,8 +454,22 @@ local function handleAddPlayer(player, args)
         return
     end
     
+    -- Find vehicle (REQUIRED - must be near vehicle to modify access list)
     local vehicle = findVehicleByHash(vehicleHash)
     if not vehicle then
+        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
+            reason = VehicleClaim.ERR_VEHICLE_NOT_LOADED
+        })
+        VehicleClaim.log("Add player rejected: Vehicle not loaded (player must be nearby)")
+        return
+    end
+    
+    -- Check proximity (REQUIRED - ensures vehicle ModData can be updated)
+    if not VehicleClaim.isWithinRange(player, vehicle) then
+        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
+            reason = VehicleClaim.ERR_TOO_FAR
+        })
+        VehicleClaim.log("Add player rejected: Player too far from vehicle")
         return
     end
     
@@ -472,7 +491,7 @@ local function handleAddPlayer(player, args)
         return
     end
     
-    -- Add to allowed list
+    -- Add to allowed list in ModData
     local claimData = VehicleClaim.getClaimData(vehicle)
     if claimData then
         if not claimData[VehicleClaim.ALLOWED_PLAYERS_KEY] then
@@ -480,6 +499,9 @@ local function handleAddPlayer(player, args)
         end
         claimData[VehicleClaim.ALLOWED_PLAYERS_KEY][targetSteamID] = targetPlayerName
         vehicle:transmitModData()
+        
+        -- Also update in global registry (for display in panels when vehicle unloaded)
+        updateRegistryAllowedPlayers(vehicleHash, claimData[VehicleClaim.ALLOWED_PLAYERS_KEY])
         
         VehicleClaim.log("Added " .. targetPlayerName .. " to vehicle access")
         
@@ -511,8 +533,22 @@ local function handleRemovePlayer(player, args)
         return
     end
     
+    -- Find vehicle (REQUIRED - must be near vehicle to modify access list)
     local vehicle = findVehicleByHash(vehicleHash)
     if not vehicle then
+        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
+            reason = VehicleClaim.ERR_VEHICLE_NOT_LOADED
+        })
+        VehicleClaim.log("Remove player rejected: Vehicle not loaded (player must be nearby)")
+        return
+    end
+    
+    -- Check proximity (REQUIRED - ensures vehicle ModData can be updated)
+    if not VehicleClaim.isWithinRange(player, vehicle) then
+        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
+            reason = VehicleClaim.ERR_TOO_FAR
+        })
+        VehicleClaim.log("Remove player rejected: Player too far from vehicle")
         return
     end
     
@@ -525,12 +561,15 @@ local function handleRemovePlayer(player, args)
         return
     end
     
-    -- Remove from allowed list
+    -- Remove from allowed list in ModData
     local claimData = VehicleClaim.getClaimData(vehicle)
     if claimData and claimData[VehicleClaim.ALLOWED_PLAYERS_KEY] then
         local removedName = claimData[VehicleClaim.ALLOWED_PLAYERS_KEY][targetSteamID] or "Player"
         claimData[VehicleClaim.ALLOWED_PLAYERS_KEY][targetSteamID] = nil
         vehicle:transmitModData()
+        
+        -- Also update in global registry (for display in panels when vehicle unloaded)
+        updateRegistryAllowedPlayers(vehicleHash, claimData[VehicleClaim.ALLOWED_PLAYERS_KEY])
         
         VehicleClaim.log("Removed " .. removedName .. " from vehicle access")
         
@@ -619,20 +658,7 @@ local function handleAdminClearAllClaims(player, args)
     
     -- Clear all vehicle ModData
     local vehiclesCleared = 0
-    local vehicles = getCell():getVehicles()
-    if vehicles then
-        for i = 0, vehicles:size() - 1 do
-            local vehicle = vehicles:get(i)
-            if vehicle then
-                local modData = vehicle:getModData()
-                if modData[VehicleClaim.MODDATA_KEY] then
-                    modData[VehicleClaim.MODDATA_KEY] = nil
-                    vehicle:transmitModData()
-                    vehiclesCleared = vehiclesCleared + 1
-                end
-            end
-        end
-    end
+
     
     VehicleClaim.log("[ADMIN] Cleared ModData from " .. vehiclesCleared .. " vehicles")
     

@@ -233,7 +233,7 @@ function ISVehicleClaimListPanel:updateVehicleList()
         local y = claimData.y or 0
         
         -- Show vehicle hash and last known position
-        local displayText = string.format("Vehicle %s - (%d, %d)", vehicleHash, math.floor(x), math.floor(y))
+        local displayText = getText("UI_VehicleClaim_VehicleListItem", vehicleHash, math.floor(x), math.floor(y))
         
         self.vehicleList:addItem(displayText, {
             vehicleHash = vehicleHash,
@@ -277,7 +277,38 @@ function ISVehicleClaimListPanel.drawVehicleListItem(self, y, item, alt)
         self:drawRect(0, y, self:getWidth(), self.itemheight, 0.2, 0.3, 0.3, 0.5)
     end
     
-    self:drawText(item.text, 10, y + 8, r, g, b, 1, UIFont.Small)
+    -- Calculate distance if vehicle is loaded (only for visible items - performance optimized)
+    local displayText = item.text
+    if item.item.vehicleHash and self.parent and self.parent.player then
+        local vehicleHash = item.item.vehicleHash
+        local x = item.item.x or 0
+        local y_coord = item.item.y or 0
+        
+        -- Try to find the vehicle in the world
+        local vehicle = nil
+        local vehicles = getCell():getVehicles()
+        if vehicles then
+            for i = 0, vehicles:size() - 1 do
+                local v = vehicles:get(i)
+                if v and VehicleClaim.getVehicleHash(v) == vehicleHash then
+                    vehicle = v
+                    break
+                end
+            end
+        end
+        
+        -- Update display text with distance if vehicle is loaded
+        if vehicle then
+            local distance = VehicleClaim.getDistance(self.parent.player, vehicle)
+            displayText = getText("UI_VehicleClaim_VehicleListItemWithDistance", 
+                vehicleHash, math.floor(x), math.floor(y_coord), string.format("%.1f", distance))
+        else
+            displayText = getText("UI_VehicleClaim_VehicleListItem", 
+                vehicleHash, math.floor(x), math.floor(y_coord))
+        end
+    end
+    
+    self:drawText(displayText, 10, y + 8, r, g, b, 1, UIFont.Small)
     
     return y + self.itemheight
 end
@@ -344,25 +375,11 @@ end
 -- Update Loop
 -----------------------------------------------------------
 
--- function ISVehicleClaimListPanel:update()
---     ISPanel.update(self)
+ function ISVehicleClaimListPanel:update()
+     ISPanel.update(self)
     
---     -- Auto-refresh every 5 seconds using timestamp-based throttling
---     local currentTime = getTimestampMs()
-    
---     if not self.lastUpdateTime then
---         self.lastUpdateTime = currentTime
---         return
---     end
-    
---     local elapsedTime = currentTime - self.lastUpdateTime
-    
---     -- Refresh every 5000ms (5 seconds)
---     if elapsedTime >= 5000 then
---         self.lastUpdateTime = currentTime
---         self:refreshData()
---     end
--- end
+     
+end
 
 -----------------------------------------------------------
 -- Input Handling

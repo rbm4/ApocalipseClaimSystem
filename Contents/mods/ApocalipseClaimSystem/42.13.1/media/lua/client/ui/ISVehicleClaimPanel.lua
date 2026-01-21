@@ -214,8 +214,49 @@ function ISVehicleClaimPanel:initialise()
         VehicleClaimClientCommands.registerPanel(self)
     end
 
+    -- Set up event listeners for reactive updates
+    self:setupEventListeners()
+
     -- Load initial data
     self:refreshData()
+end
+
+-----------------------------------------------------------
+-- Event Listeners
+-----------------------------------------------------------
+
+function ISVehicleClaimPanel:setupEventListeners()
+    -- Handler for when access list changes (player added/removed)
+    self.onAccessChangedHandler = function(vehicleHash, claimData)
+        -- Only refresh if this panel is for the same vehicle
+        if vehicleHash == self.vehicleHash then
+            self:refreshData()
+        end
+    end
+    
+    -- Handler for when claim is released
+    self.onClaimReleasedHandler = function(vehicleHash, claimData)
+        -- Close panel if this vehicle's claim was released
+        if vehicleHash == self.vehicleHash then
+            self:onClose()
+        end
+    end
+    
+    -- Register event handlers
+    Events.OnVehicleClaimAccessChanged.Add(self.onAccessChangedHandler)
+    Events.OnVehicleClaimReleased.Add(self.onClaimReleasedHandler)
+end
+
+function ISVehicleClaimPanel:removeEventListeners()
+    if self.onAccessChangedHandler then
+        Events.OnVehicleClaimAccessChanged.Remove(self.onAccessChangedHandler)
+        self.onAccessChangedHandler = nil
+    end
+    
+    if self.onClaimReleasedHandler then
+        Events.OnVehicleClaimReleased.Remove(self.onClaimReleasedHandler)
+        self.onClaimReleasedHandler = nil
+    end
 end
 
 -----------------------------------------------------------
@@ -385,6 +426,7 @@ function ISVehicleClaimPanel:onRemovePlayer()
 end
 
 function ISVehicleClaimPanel:onReleaseClaim()
+
     -- Check if vehicle is loaded and player is nearby
     if not self.vehicle then
         -- Vehicle not loaded - cannot unclaim from far away
@@ -409,8 +451,10 @@ function ISVehicleClaimPanel:onReleaseClaim()
     -- Confirm action
     local modal = ISModalDialog:new(self.x + 50, self.y + 100, 280, 100, getText("UI_VehicleClaim_ReleaseConfirm"),
         true, self, ISVehicleClaimPanel.onReleaseConfirm)
+    self:removeEventListeners()
     modal:initialise()
     modal:addToUIManager()
+
 end
 
 function ISVehicleClaimPanel:onReleaseConfirm(button)

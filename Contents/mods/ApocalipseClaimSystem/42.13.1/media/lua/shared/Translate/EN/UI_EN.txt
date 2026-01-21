@@ -64,6 +64,8 @@ UI_EN = {
     -- Unloaded vehicle messages
     UI_VehicleClaim_NotLoaded = "Not loaded",
     UI_VehicleClaim_VehicleNotLoaded = "This vehicle is not loaded. Go closer to manage it.",
+    UI_VehicleClaim_MustBeNearVehicleNotLoaded = "You must be near the vehicle to release the claim.\n\nVehicle is not currently loaded.",
+    UI_VehicleClaim_MustBeNearVehicleTooFar = "You must be near the vehicle to release the claim.\n\nYou are too far away.",
     
     -- Mechanics UI
     UI_VehicleClaim_MechanicsTitle = "Vehicle Ownership",

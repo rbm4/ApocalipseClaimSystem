@@ -64,6 +64,8 @@ UI_PT = {
     -- Unloaded vehicle messages
     UI_VehicleClaim_NotLoaded = "Nao carregado",
     UI_VehicleClaim_VehicleNotLoaded = "Este veiculo nao esta carregado. Va mais perto para gerenciar.",
+    UI_VehicleClaim_MustBeNearVehicleNotLoaded = "Voce deve estar perto do veiculo para liberar a reivindicacao.\n\nO veiculo nao esta carregado no momento.",
+    UI_VehicleClaim_MustBeNearVehicleTooFar = "Voce deve estar perto do veiculo para liberar a reivindicacao.\n\nVoce esta muito longe.",
     
     -- Mechanics UI
     UI_VehicleClaim_MechanicsTitle = "Propriedade do Veiculo",

@@ -389,7 +389,7 @@ function ISVehicleClaimPanel:onReleaseClaim()
     if not self.vehicle then
         -- Vehicle not loaded - cannot unclaim from far away
         local modal = ISModalDialog:new(self.x + 50, self.y + 100, 350, 120, 
-            "You must be near the vehicle to release the claim.\n\nVehicle is not currently loaded.", 
+            getText("UI_VehicleClaim_MustBeNearVehicleNotLoaded"), 
             false, nil, nil)
         modal:initialise()
         modal:addToUIManager()
@@ -399,7 +399,7 @@ function ISVehicleClaimPanel:onReleaseClaim()
     -- Check proximity
     if not VehicleClaim.isWithinRange(self.player, self.vehicle) then
         local modal = ISModalDialog:new(self.x + 50, self.y + 100, 350, 120, 
-            "You must be near the vehicle to release the claim.\n\nYou are too far away.", 
+            getText("UI_VehicleClaim_MustBeNearVehicleTooFar"), 
             false, nil, nil)
         modal:initialise()
         modal:addToUIManager()
@@ -419,17 +419,6 @@ function ISVehicleClaimPanel:onReleaseConfirm(button)
         if self.vehicle then
             local action = ISReleaseVehicleClaimAction:new(self.player, self.vehicle, VehicleClaim.CLAIM_TIME_TICKS / 2)
             ISTimedActionQueue.add(action)
-        else
-            -- Fallback: If no vehicle reference, send command directly
-            local vehicleHash = self.vehicleHash
-            local steamID = VehicleClaim.getPlayerSteamID(self.player)
-
-            local args = {
-                vehicleHash = vehicleHash,
-                steamID = steamID
-            }
-
-            sendClientCommand(self.player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_RELEASE, args)
         end
 
         -- Close panel

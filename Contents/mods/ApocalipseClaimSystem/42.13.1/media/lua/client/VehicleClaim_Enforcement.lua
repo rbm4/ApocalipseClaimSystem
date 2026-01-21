@@ -8,60 +8,9 @@ require "shared/VehicleClaim_Shared"
 
 local VehicleClaimEnforcement = {}
 
--- Cache for access checks to prevent server spam
--- Structure: [vehicleHash] = { allowed = boolean, timestamp = number, steamID = string }
-local accessCheckCache = {}
-local CACHE_DURATION = 5  -- seconds
-
 -----------------------------------------------------------
 -- Helper Function: Check Vehicle Access
 -----------------------------------------------------------
-
---- Check if we have a cached access result for this vehicle and player
---- @param vehicle BaseVehicle
---- @param steamID string
---- @return boolean|nil  true if allowed, false if denied, nil if no cache or expired
-local function getCachedAccess(vehicle, steamID)
-    if not vehicle or not steamID then return nil end
-    
-    -- Use vehicle hash for cache key (persistent across server restarts)
-    local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
-    if not vehicleHash then return nil end
-    
-    local cached = accessCheckCache[vehicleHash]
-    if not cached then return nil end
-    
-    -- Check if cache is for the same player
-    if cached.steamID ~= steamID then return nil end
-    
-    -- Check if cache is still valid
-    local age = os.time() - cached.timestamp
-    if age > CACHE_DURATION then
-        -- Cache expired
-        accessCheckCache[vehicleHash] = nil
-        return nil
-    end
-    
-    return cached.allowed
-end
-
---- Update access cache
---- @param vehicle BaseVehicle
---- @param steamID string
---- @param allowed boolean
-local function cacheAccessResult(vehicle, steamID, allowed)
-    if not vehicle or not steamID then return end
-    
-    -- Use vehicle hash for cache key (persistent across server restarts)
-    local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
-    if not vehicleHash then return end
-    
-    accessCheckCache[vehicleHash] = {
-        allowed = allowed,
-        timestamp = os.time(),
-        steamID = steamID
-    }
-end
 
 --- Check if player has access to a vehicle
 --- @param player IsoPlayer
@@ -81,28 +30,16 @@ function VehicleClaimEnforcement.hasAccess(player, vehicle)
         return false  -- DENY until ModData exists
     end
     
-    -- Check cached access result first (short cache to reduce calls)
-    local cachedResult = getCachedAccess(vehicle, steamID)
-    if cachedResult ~= nil then
-        return cachedResult
-    end
-    
     -- Read claim data directly from vehicle ModData (single source of truth)
     local claimData = VehicleClaim.getClaimData(vehicle)
     
     -- If no claim data exists, vehicle is unclaimed - allow access
     if not claimData then
-        cacheAccessResult(vehicle, steamID, true)
         return true
     end
     
     -- Vehicle has claim data - check access
-    local hasAccess = VehicleClaim.hasAccess(vehicle, steamID)
-    
-    -- Cache the result
-    cacheAccessResult(vehicle, steamID, hasAccess)
-    
-    return hasAccess
+    return VehicleClaim.hasAccess(vehicle, steamID)
 end
 
 --- Get denial message
@@ -777,47 +714,11 @@ local function initializeHooks()
 end
 
 -----------------------------------------------------------
--- Cache Invalidation on Claim Changes
------------------------------------------------------------
-
---- Clear access cache for a specific vehicle
---- @param vehicleHash string
-local function invalidateAccessCache(vehicleHash)
-    if not vehicleHash then return end
-    
-    -- Clear cache by hash directly (no need to find vehicle)
-    if accessCheckCache[vehicleHash] then
-        accessCheckCache[vehicleHash] = nil
-        print("[VehicleClaim] Cleared access cache for vehicle: " .. vehicleHash)
-    end
-end
-
---- Event handler for claim changes
-local function onClaimChanged(vehicleHash, claimData)
-    invalidateAccessCache(vehicleHash)
-end
-
---- Event handler for claim released
-local function onClaimReleased(vehicleHash, claimData)
-    invalidateAccessCache(vehicleHash)
-end
-
---- Event handler for access list changes
-local function onAccessChanged(vehicleHash, claimData)
-    invalidateAccessCache(vehicleHash)
-end
-
------------------------------------------------------------
 -- Event Registration
 -----------------------------------------------------------
 
 -- Register context menu blocking
 Events.OnFillWorldObjectContextMenu.Add(onFillWorldObjectContextMenu)
-
--- Register cache invalidation on claim changes
-Events.OnVehicleClaimChanged.Add(onClaimChanged)
-Events.OnVehicleClaimReleased.Add(onClaimReleased)
-Events.OnVehicleClaimAccessChanged.Add(onAccessChanged)
 
 -- Register container update blocking with error handling
 Events.OnContainerUpdate.Add(function(container)

@@ -88,12 +88,6 @@ function ISVehicleClaimListPanel:initialise()
     self.manageButton:instantiate()
     self.manageButton.borderColor = {r = 0.3, g = 0.5, b = 0.3, a = 1}
     self:addChild(self.manageButton)
-    
-    -- Refresh button
-    self.refreshButton = ISButton:new(padding * 2 + btnWidth, y, btnWidth, btnHeight, getText("UI_VehicleClaim_Refresh"), self, ISVehicleClaimListPanel.onRefresh)
-    self.refreshButton:initialise()
-    self.refreshButton:instantiate()
-    self:addChild(self.refreshButton)
     y = y + btnHeight + padding
     
     -- Close button
@@ -107,11 +101,60 @@ function ISVehicleClaimListPanel:initialise()
         VehicleClaimClientCommands.registerPanel(self)
     end
     
+    -- Set up event listeners for reactive updates
+    self:setupEventListeners()
+    
     -- Force refresh on panel open by clearing cache
     self.lastCacheTime = nil
     
     -- Load initial data from server
     self:refreshData()
+end
+
+function ISVehicleClaimListPanel:setupEventListeners()
+    -- Event handlers that refresh the entire list when claim data changes
+    self.onClaimChangedHandler = function(vehicleHash, claimData)
+        print("[VehicleClaim] List panel: Claim changed for vehicle " .. tostring(vehicleHash))
+        -- Invalidate cache and refresh from server
+        self.lastCacheTime = nil
+        self:refreshData()
+    end
+    
+    self.onClaimReleasedHandler = function(vehicleHash, claimData)
+        print("[VehicleClaim] List panel: Claim released for vehicle " .. tostring(vehicleHash))
+        -- Invalidate cache and refresh from server
+        self.lastCacheTime = nil
+        self:refreshData()
+    end
+    
+    self.onAccessChangedHandler = function(vehicleHash, claimData)
+        print("[VehicleClaim] List panel: Access changed for vehicle " .. tostring(vehicleHash))
+        -- Refresh to show updated access info
+        self.lastCacheTime = nil
+        self:refreshData()
+    end
+    
+    -- Subscribe to events
+    Events.OnVehicleClaimChanged.Add(self.onClaimChangedHandler)
+    Events.OnVehicleClaimReleased.Add(self.onClaimReleasedHandler)
+    Events.OnVehicleClaimAccessChanged.Add(self.onAccessChangedHandler)
+    
+    print("[VehicleClaim] List panel event listeners registered")
+end
+
+function ISVehicleClaimListPanel:removeEventListeners()
+    -- Unsubscribe from events
+    if self.onClaimChangedHandler then
+        Events.OnVehicleClaimChanged.Remove(self.onClaimChangedHandler)
+    end
+    if self.onClaimReleasedHandler then
+        Events.OnVehicleClaimReleased.Remove(self.onClaimReleasedHandler)
+    end
+    if self.onAccessChangedHandler then
+        Events.OnVehicleClaimAccessChanged.Remove(self.onAccessChangedHandler)
+    end
+    
+    print("[VehicleClaim] List panel event listeners removed")
 end
 
 -----------------------------------------------------------
@@ -284,21 +327,10 @@ function ISVehicleClaimListPanel:onManageVehicle()
     panel:setVisible(true)
 end
 
-function ISVehicleClaimListPanel:onRefresh()
-    if VehicleClaimClientCommands then
-        VehicleClaimClientCommands.requestMyClaims(function(args)
-            -- Update cache with timestamp
-            self.lastCacheTime = getTimestampMs()
-            self.cachedClaimsData = args.claims
-            self.cachedClaimCount = args.currentCount
-            self.cachedMaxCount = args.maxClaims
-            
-            self:onClaimsReceived(args)
-        end)
-    end
-end
-
 function ISVehicleClaimListPanel:onClose()
+    -- Unsubscribe from events
+    self:removeEventListeners()
+    
     -- Unregister from refresh events
     if VehicleClaimClientCommands then
         VehicleClaimClientCommands.unregisterPanel(self)

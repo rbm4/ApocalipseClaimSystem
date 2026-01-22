@@ -133,12 +133,23 @@ function ISVehicleClaimInfoPanel:setupEventListeners()
         end
     end
     
+    self.onVehicleHashGeneratedHandler = function(vehicleHash, vehicle)
+        if self.vehicle == vehicle then
+            print("[VehicleClaim] Hash generated for our vehicle: " .. vehicleHash)
+            -- Update vehicle hash label
+            if self.vehicleIDLabel then
+                self.vehicleIDLabel:setName(getText("UI_VehicleClaim_VehicleIDLabel", vehicleHash))
+            end
+        end
+    end
+    
     -- Subscribe to events
     --Events.OnVehicleClaimSuccess.Add(self.onClaimSuccessHandler)
     Events.OnVehicleClaimChanged.Add(self.onClaimChangedHandler)
     Events.OnVehicleClaimReleased.Add(self.onClaimReleasedHandler)
     Events.OnVehicleClaimAccessChanged.Add(self.onAccessChangedHandler)
     Events.OnVehicleInfoReceived.Add(self.onVehicleInfoReceivedHandler)
+    Events.OnVehicleHashGenerated.Add(self.onVehicleHashGeneratedHandler)
     
     print("[VehicleClaim] Event listeners registered")
 end
@@ -159,6 +170,9 @@ function ISVehicleClaimInfoPanel:removeEventListeners()
     end
     if self.onVehicleInfoReceivedHandler then
         Events.OnVehicleInfoReceived.Remove(self.onVehicleInfoReceivedHandler)
+    end
+    if self.onVehicleHashGeneratedHandler then
+        Events.OnVehicleHashGenerated.Remove(self.onVehicleHashGeneratedHandler)
     end
     
     print("[VehicleClaim] Event listeners removed")
@@ -365,13 +379,26 @@ function ISVehicleClaimInfoPanel:update()
             print("[VehicleClaim] Vehicle changed to: " .. tostring(self.parent.vehicle))
             self.vehicle = self.parent.vehicle
             
+            -- Generate hash if it doesn't exist yet
+            local vehicleHash = VehicleClaim.getVehicleHash(self.vehicle)
+            if not vehicleHash then
+                print("[VehicleClaim] Vehicle has no hash, generating now...")
+                vehicleHash = VehicleClaim.getOrCreateVehicleHash(self.vehicle)
+                if vehicleHash then
+                    print("[VehicleClaim] Generated hash for vehicle: " .. vehicleHash)
+                    -- Trigger event so other components can react
+                    triggerEvent("OnVehicleHashGenerated", vehicleHash, self.vehicle)
+                end
+            else
+                print("[VehicleClaim] Vehicle already has hash: " .. vehicleHash)
+            end
+            
             -- Update UI to reflect new vehicle's claim status
             self:updateInfo()
             
             -- Update vehicle hash label
             if self.vehicleIDLabel then
-                local vehicleHash = VehicleClaim.getVehicleHash(self.vehicle) or "Not Generated"
-                self.vehicleIDLabel:setName(getText("UI_VehicleClaim_VehicleIDLabel", vehicleHash))
+                self.vehicleIDLabel:setName(getText("UI_VehicleClaim_VehicleIDLabel", vehicleHash or "Generating..."))
             end
         end
     end

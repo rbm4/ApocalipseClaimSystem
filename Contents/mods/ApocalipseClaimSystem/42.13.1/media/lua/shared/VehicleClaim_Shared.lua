@@ -120,7 +120,9 @@ function VehicleClaim.getOrCreateVehicleHash(vehicle)
     -- Store in ModData
     modData[VehicleClaim.VEHICLE_HASH_KEY] = vehicleHash
     vehicle:transmitModData()
-    vehicle:saveToVehicleTable()
+    if isServer() then
+        vehicle:saveToVehicleTable()
+    end
     
     return vehicleHash
 end

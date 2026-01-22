@@ -40,10 +40,10 @@ function ISClaimVehicleAction:stop()
 end
 
 function ISClaimVehicleAction:perform()
-    -- Get or create vehicle hash
-    local vehicleHash = VehicleClaim.getOrCreateVehicleHash(self.vehicle)
+    -- Get vehicle hash (should already exist from mechanics UI)
+    local vehicleHash = VehicleClaim.getVehicleHash(self.vehicle)
     if not vehicleHash then
-        VehicleClaim.log("ERROR: Could not get/create vehicle hash for claim")
+        VehicleClaim.log("ERROR: Vehicle hash not found - this shouldn't happen if mechanics UI was opened")
         ISBaseTimedAction.perform(self)
         return
     end

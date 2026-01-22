@@ -16,6 +16,7 @@ LuaEventManager.AddEvent("OnVehicleClaimChanged")
 LuaEventManager.AddEvent("OnVehicleClaimReleased")
 LuaEventManager.AddEvent("OnVehicleClaimAccessChanged")
 LuaEventManager.AddEvent("OnVehicleInfoReceived")
+LuaEventManager.AddEvent("OnVehicleHashGenerated")
 
 -----------------------------------------------------------
 -- Server Response Handlers

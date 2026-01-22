@@ -105,8 +105,9 @@ end
 --- @param ownerName string
 --- @param x number
 --- @param y number
+--- @param vehicleName string Vehicle model/script name
 --- @param allowedPlayers table|nil Optional allowed players table
-local function addToGlobalRegistry(vehicleHash, ownerSteamID, ownerName, x, y, allowedPlayers)
+local function addToGlobalRegistry(vehicleHash, ownerSteamID, ownerName, x, y, vehicleName, allowedPlayers)
     local registry = getGlobalRegistry()
     registry[vehicleHash] = {
         vehicleHash = vehicleHash,
@@ -114,6 +115,7 @@ local function addToGlobalRegistry(vehicleHash, ownerSteamID, ownerName, x, y, a
         ownerName = ownerName,
         x = x,
         y = y,
+        vehicleName = vehicleName or "Unknown Vehicle",
         claimTime = VehicleClaim.getCurrentTimestamp(),
         allowedPlayers = allowedPlayers or {}
     }
@@ -168,6 +170,7 @@ local function getPlayerClaimsFromRegistry(steamID)
                 vehicleHash = claimData.vehicleHash,
                 ownerSteamID = claimData.ownerSteamID,
                 ownerName = claimData.ownerName,
+                vehicleName = claimData.vehicleName or "Unknown Vehicle",
                 x = claimData.x,
                 y = claimData.y,
                 claimTime = claimData.claimTime,
@@ -217,10 +220,14 @@ local function initializeClaimData(vehicle, ownerSteamID, ownerName)
         return nil, nil
     end
     
+    -- Get vehicle name/model
+    local vehicleName = VehicleClaim.getVehicleName(vehicle)
+    
     -- Create claim data
     local claimData = {
         [VehicleClaim.OWNER_KEY] = ownerSteamID,
         [VehicleClaim.OWNER_NAME_KEY] = ownerName,
+        [VehicleClaim.VEHICLE_NAME_KEY] = vehicleName,
         [VehicleClaim.ALLOWED_PLAYERS_KEY] = {},
         [VehicleClaim.CLAIM_TIME_KEY] = VehicleClaim.getCurrentTimestamp(),
         [VehicleClaim.LAST_SEEN_KEY] = VehicleClaim.getCurrentTimestamp(),
@@ -232,7 +239,7 @@ local function initializeClaimData(vehicle, ownerSteamID, ownerName)
     vehicle:transmitModData()
     
     -- Also add to global registry (for tracking when vehicle is unloaded)
-    addToGlobalRegistry(vehicleHash, ownerSteamID, ownerName, vehicle:getX(), vehicle:getY())
+    addToGlobalRegistry(vehicleHash, ownerSteamID, ownerName, vehicle:getX(), vehicle:getY(), vehicleName)
     
     -- Return claimData and hash so caller can send response
     return claimData, vehicleHash

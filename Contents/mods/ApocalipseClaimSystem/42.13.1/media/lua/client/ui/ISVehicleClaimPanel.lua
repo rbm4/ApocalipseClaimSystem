@@ -426,35 +426,50 @@ function ISVehicleClaimPanel:onRemovePlayer()
 end
 
 function ISVehicleClaimPanel:onReleaseClaim()
-
     -- Check if vehicle is loaded and player is nearby
     if not self.vehicle then
-        -- Vehicle not loaded - cannot unclaim from far away
-        local modal = ISModalDialog:new(self.x + 50, self.y + 100, 350, 120, 
-            getText("UI_VehicleClaim_MustBeNearVehicleNotLoaded"), 
-            false, nil, nil)
+        -- Vehicle not loaded - allow remote unclaim
+        local modal = ISModalDialog:new(self.x + 50, self.y + 100, 380, 140, 
+            getText("UI_VehicleClaim_ReleaseRemoteConfirm"), 
+            true, self, ISVehicleClaimPanel.onReleaseRemoteConfirm)
         modal:initialise()
         modal:addToUIManager()
         return
     end
     
-    -- Check proximity
+    -- Check proximity (vehicle is loaded)
     if not VehicleClaim.isWithinRange(self.player, self.vehicle) then
-        local modal = ISModalDialog:new(self.x + 50, self.y + 100, 350, 120, 
-            getText("UI_VehicleClaim_MustBeNearVehicleTooFar"), 
-            false, nil, nil)
+        -- Vehicle is loaded but too far - offer remote unclaim
+        local modal = ISModalDialog:new(self.x + 50, self.y + 100, 380, 140, 
+            getText("UI_VehicleClaim_ReleaseRemoteConfirm"), 
+            true, self, ISVehicleClaimPanel.onReleaseRemoteConfirm)
         modal:initialise()
         modal:addToUIManager()
         return
     end
     
-    -- Confirm action
+    -- Vehicle is loaded and nearby - standard unclaim
     local modal = ISModalDialog:new(self.x + 50, self.y + 100, 280, 100, getText("UI_VehicleClaim_ReleaseConfirm"),
         true, self, ISVehicleClaimPanel.onReleaseConfirm)
-    self:removeEventListeners()
     modal:initialise()
     modal:addToUIManager()
+end
 
+function ISVehicleClaimPanel:onReleaseRemoteConfirm(button)
+    if button.internal == "YES" then
+        -- Remote release - send command directly without timed action
+        local args = {
+            vehicleHash = self.vehicleHash,
+            steamID = VehicleClaim.getPlayerSteamID(self.player)
+        }
+        sendClientCommand(self.player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_RELEASE_REMOTE, args)
+        
+        -- Show notification
+        self.player:Say(getText("UI_VehicleClaim_RemoteReleaseInitiated"))
+        
+        -- Close panel
+        self:onClose()
+    end
 end
 
 function ISVehicleClaimPanel:onReleaseConfirm(button)

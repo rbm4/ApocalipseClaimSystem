@@ -30,6 +30,7 @@ VehicleClaim.CLAIM_TIME_TICKS = 400  -- Timed action duration (~2 seconds)
 -- Command types (client -> server)
 VehicleClaim.CMD_CLAIM = "claimVehicle"
 VehicleClaim.CMD_RELEASE = "releaseClaim"
+VehicleClaim.CMD_RELEASE_REMOTE = "releaseClaimRemote"  -- Release without requiring vehicle to be loaded
 VehicleClaim.CMD_ADD_PLAYER = "addAllowedPlayer"
 VehicleClaim.CMD_REMOVE_PLAYER = "removeAllowedPlayer"
 VehicleClaim.CMD_REQUEST_INFO = "requestVehicleInfo"

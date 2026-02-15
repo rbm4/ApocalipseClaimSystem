@@ -14,7 +14,7 @@ option VehicleClaimSystem.AbandonedDaysThreshold
 {
     type = integer,
     min = 0,
-    max = 20,
+    max = 90,
     default = 7,
     page = VehicleClaimSystem,
     translation = VehicleClaimSystem_AbandonedDaysThreshold,

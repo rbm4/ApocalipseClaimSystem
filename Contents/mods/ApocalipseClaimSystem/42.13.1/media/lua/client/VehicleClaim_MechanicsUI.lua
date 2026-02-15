@@ -298,13 +298,18 @@ function ISVehicleClaimInfoPanel:updateInfo(claimData)
         if claimData then
             local lastSeen = claimData[VehicleClaim.LAST_SEEN_KEY]
             if lastSeen then
-                local timeSince = VehicleClaim.getCurrentTimestamp() - lastSeen
-                local hours = math.floor(timeSince / 3600)
-                if hours > 24 then
-                    local days = math.floor(hours / 24)
-                    self.lastSeenLabel:setName(getText("UI_VehicleClaim_LastSeenDays", days))
-                elseif hours > 0 then
-                    self.lastSeenLabel:setName(getText("UI_VehicleClaim_LastSeenHours", hours))
+                local timeSince = VehicleClaim.getCurrentTimestamp() - lastSeen  -- in-game minutes
+                
+                -- Convert to real-world time (16 in-game days = 1 real-world day)
+                -- 1 in-game minute = 1/16 real-world minutes
+                local realWorldMinutes = timeSince / 16
+                local realWorldHours = math.floor(realWorldMinutes / 60)
+                local realWorldDays = math.floor(realWorldHours / 24)
+                
+                if realWorldDays > 0 then
+                    self.lastSeenLabel:setName(getText("UI_VehicleClaim_LastSeenDays", realWorldDays))
+                elseif realWorldHours > 0 then
+                    self.lastSeenLabel:setName(getText("UI_VehicleClaim_LastSeenHours", realWorldHours))
                 else
                     self.lastSeenLabel:setName(getText("UI_VehicleClaim_LastSeenRecently"))
                 end

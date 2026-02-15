@@ -370,7 +370,7 @@ function VehicleClaim.getMaxClaimsPerPlayer()
 end
 
 --- Get abandoned vehicle days threshold from sandbox options
---- @return number Days of inactivity before vehicle is considered abandoned
+--- @return number Real-world days of inactivity before vehicle is considered abandoned
 function VehicleClaim.getAbandonedDaysThreshold()
     if isServer() or isClient() then
         local sandboxVars = SandboxVars
@@ -384,7 +384,7 @@ end
 --- Check if a vehicle is considered abandoned based on last seen timestamp
 --- @param vehicle IsoVehicle
 --- @return boolean isAbandoned
---- @return number daysSinceLastSeen
+--- @return number realWorldDaysSinceLastSeen
 function VehicleClaim.isVehicleAbandoned(vehicle)
     local claimData = VehicleClaim.getClaimData(vehicle)
     if not claimData then
@@ -394,11 +394,14 @@ function VehicleClaim.isVehicleAbandoned(vehicle)
     local lastSeen = claimData[VehicleClaim.LAST_SEEN_KEY] or 0
     local currentTime = VehicleClaim.getCurrentTimestamp()
     local minutesSinceLastSeen = currentTime - lastSeen
-    local daysSinceLastSeen = minutesSinceLastSeen / (24 * 60)
+    local inGameDaysSinceLastSeen = minutesSinceLastSeen / (24 * 60)
     
-    local threshold = VehicleClaim.getAbandonedDaysThreshold()
+    -- Convert in-game days to real-world days (16 in-game days = 1 real-world day)
+    local realWorldDaysSinceLastSeen = inGameDaysSinceLastSeen / 16
     
-    return daysSinceLastSeen >= threshold, daysSinceLastSeen
+    local threshold = VehicleClaim.getAbandonedDaysThreshold()  -- Threshold is in real-world days
+    
+    return realWorldDaysSinceLastSeen >= threshold, realWorldDaysSinceLastSeen
 end
 
 --- Count how many vehicles a player has claimed

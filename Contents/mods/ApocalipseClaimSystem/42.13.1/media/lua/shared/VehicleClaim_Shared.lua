@@ -31,6 +31,7 @@ VehicleClaim.CLAIM_TIME_TICKS = 400  -- Timed action duration (~2 seconds)
 VehicleClaim.CMD_CLAIM = "claimVehicle"
 VehicleClaim.CMD_RELEASE = "releaseClaim"
 VehicleClaim.CMD_RELEASE_REMOTE = "releaseClaimRemote"  -- Release without requiring vehicle to be loaded
+VehicleClaim.CMD_CONTEST_CLAIM = "contestClaim"  -- Contest an abandoned vehicle claim
 VehicleClaim.CMD_ADD_PLAYER = "addAllowedPlayer"
 VehicleClaim.CMD_REMOVE_PLAYER = "removeAllowedPlayer"
 VehicleClaim.CMD_REQUEST_INFO = "requestVehicleInfo"
@@ -366,6 +367,38 @@ function VehicleClaim.getMaxClaimsPerPlayer()
         end
     end
     return VehicleClaim.DEFAULT_MAX_CLAIMS
+end
+
+--- Get abandoned vehicle days threshold from sandbox options
+--- @return number Days of inactivity before vehicle is considered abandoned
+function VehicleClaim.getAbandonedDaysThreshold()
+    if isServer() or isClient() then
+        local sandboxVars = SandboxVars
+        if sandboxVars and sandboxVars.VehicleClaimSystem then
+            return sandboxVars.VehicleClaimSystem.AbandonedDaysThreshold or 7
+        end
+    end
+    return 7
+end
+
+--- Check if a vehicle is considered abandoned based on last seen timestamp
+--- @param vehicle IsoVehicle
+--- @return boolean isAbandoned
+--- @return number daysSinceLastSeen
+function VehicleClaim.isVehicleAbandoned(vehicle)
+    local claimData = VehicleClaim.getClaimData(vehicle)
+    if not claimData then
+        return false, 0  -- Unclaimed vehicles are not abandoned
+    end
+    
+    local lastSeen = claimData[VehicleClaim.LAST_SEEN_KEY] or 0
+    local currentTime = VehicleClaim.getCurrentTimestamp()
+    local minutesSinceLastSeen = currentTime - lastSeen
+    local daysSinceLastSeen = minutesSinceLastSeen / (24 * 60)
+    
+    local threshold = VehicleClaim.getAbandonedDaysThreshold()
+    
+    return daysSinceLastSeen >= threshold, daysSinceLastSeen
 end
 
 --- Count how many vehicles a player has claimed

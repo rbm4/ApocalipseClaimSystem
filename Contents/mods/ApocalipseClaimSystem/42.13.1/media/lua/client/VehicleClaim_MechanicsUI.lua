@@ -318,8 +318,21 @@ function ISVehicleClaimInfoPanel:updateInfo(claimData)
             self.actionButton:setVisible(true)
             self.actionButton.backgroundColor = {r=0.8, g=0.3, b=0.3, a=1}
         else
-            print("[VehicleClaim] Hiding action button (isOwner=" .. tostring(isOwner) .. ", isAdmin=" .. tostring(isAdmin) .. ")")
-            self.actionButton:setVisible(false)
+            -- Non-owner: check if vehicle is abandoned and can be contested
+            local isAbandoned, daysSinceLastSeen = VehicleClaim.isVehicleAbandoned(self.vehicle)
+            local threshold = VehicleClaim.getAbandonedDaysThreshold()
+            
+            if threshold == 0 or isAbandoned then
+                -- Vehicle can be contested (either threshold is 0 or vehicle is abandoned)
+                print("[VehicleClaim] Showing contest button (abandoned=" .. tostring(isAbandoned) .. ", days=" .. string.format("%.1f", daysSinceLastSeen) .. ", threshold=" .. threshold .. ")")
+                self.actionButton:setTitle(getText("UI_VehicleClaim_ContestClaim"))
+                self.actionButton:setVisible(true)
+                self.actionButton.backgroundColor = {r=0.8, g=0.6, b=0.2, a=1}
+            else
+                -- Vehicle not abandoned yet
+                print("[VehicleClaim] Hiding action button (not abandoned: " .. string.format("%.1f", daysSinceLastSeen) .. " days, need " .. threshold .. ")")
+                self.actionButton:setVisible(false)
+            end
         end
         
         -- Manage button
@@ -338,16 +351,26 @@ function ISVehicleClaimInfoPanel:onActionButton()
     
     -- Read claim state directly from vehicle ModData
     local isClaimed = VehicleClaim.isClaimed(self.vehicle)
+    local steamID = VehicleClaim.getPlayerSteamID(self.player)
+    local claimData = VehicleClaim.getClaimData(self.vehicle)
+    local isOwner = claimData and (claimData[VehicleClaim.OWNER_KEY] == steamID)
+    local isAdmin = self.player:getAccessLevel() == "admin" or self.player:getAccessLevel() == "moderator"
+    
     print("[VehicleClaim] onActionButton: self.vehicle=" .. tostring(self.vehicle))
     print("[VehicleClaim] onActionButton: isClaimed=" .. tostring(isClaimed))
+    print("[VehicleClaim] onActionButton: isOwner=" .. tostring(isOwner))
     
     if not isClaimed then
         -- Claim vehicle - use timed action
         local action = ISClaimVehicleAction:new(self.player, self.vehicle, VehicleClaim.CLAIM_TIME_TICKS)
         ISTimedActionQueue.add(action)
-    else
-        -- Release claim - use timed action
+    elseif isOwner or isAdmin then
+        -- Owner/Admin: Release claim - use timed action
         local action = ISReleaseVehicleClaimAction:new(self.player, self.vehicle, VehicleClaim.CLAIM_TIME_TICKS / 2)
+        ISTimedActionQueue.add(action)
+    else
+        -- Non-owner: Contest abandoned claim - use timed action
+        local action = ISContestVehicleClaimAction:new(self.player, self.vehicle, VehicleClaim.CLAIM_TIME_TICKS)
         ISTimedActionQueue.add(action)
     end
     

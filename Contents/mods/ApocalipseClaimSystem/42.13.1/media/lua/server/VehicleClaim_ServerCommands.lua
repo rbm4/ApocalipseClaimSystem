@@ -530,6 +530,98 @@ local function handleReleaseClaimRemote(player, args)
     })
 end
 
+--- Handle contest claim request (for abandoned vehicles)
+--- Allows non-owners to unclaim vehicles that haven't been used in X days
+--- @param player IsoPlayer
+--- @param args table
+local function handleContestClaim(player, args)
+    local vehicleHash = args.vehicleHash
+    local steamID = args.steamID
+    
+    if not vehicleHash or not steamID then
+        VehicleClaim.log("Contest claim rejected: missing parameters")
+        return
+    end
+    
+    local actualSteamID = VehicleClaim.getPlayerSteamID(player)
+    if actualSteamID ~= steamID then
+        VehicleClaim.log("Contest claim rejected: steamID mismatch")
+        return
+    end
+    
+    -- Find vehicle (REQUIRED - must be near vehicle to contest)
+    local vehicle = findVehicleByHash(vehicleHash)
+    if not vehicle then
+        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
+            reason = VehicleClaim.ERR_VEHICLE_NOT_LOADED
+        })
+        VehicleClaim.log("Contest claim rejected: Vehicle not loaded")
+        return
+    end
+    
+    -- Check proximity
+    if not VehicleClaim.isWithinRange(player, vehicle) then
+        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
+            reason = VehicleClaim.ERR_TOO_FAR
+        })
+        VehicleClaim.log("Contest claim rejected: Player too far from vehicle")
+        return
+    end
+    
+    -- Read claim data
+    local claimData = VehicleClaim.getClaimData(vehicle)
+    if not claimData then
+        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
+            reason = VehicleClaim.ERR_VEHICLE_NOT_CLAIMED
+        })
+        VehicleClaim.log("Contest claim rejected: Vehicle not claimed")
+        return
+    end
+    
+    -- Verify player is NOT the owner (owners should use normal unclaim)
+    local ownerSteamID = claimData[VehicleClaim.OWNER_KEY]
+    if ownerSteamID == steamID then
+        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
+            reason = "cannotContestOwnVehicle"
+        })
+        VehicleClaim.log("Contest claim rejected: Player is the owner (use normal release instead)")
+        return
+    end
+    
+    -- Check if vehicle is abandoned
+    local isAbandoned, daysSinceLastSeen = VehicleClaim.isVehicleAbandoned(vehicle)
+    if isAbandoned == false then
+        local threshold = VehicleClaim.getAbandonedDaysThreshold()
+        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
+            reason = "vehicleNotAbandoned",
+            daysSinceLastSeen = math.floor(daysSinceLastSeen),
+            daysRequired = threshold
+        })
+        VehicleClaim.log(string.format("Contest claim rejected: Vehicle not abandoned (%.1f days, need %d days)", 
+            daysSinceLastSeen, threshold))
+        return
+    end
+    
+    -- All validations passed - remove the claim
+    VehicleClaim.log(string.format("[Contest Claim] Vehicle %s contested by %s (abandoned for %.1f days)", 
+        vehicleHash, player:getUsername(), daysSinceLastSeen))
+    
+    -- Clear ModData
+    local modData = vehicle:getModData()
+    modData[VehicleClaim.MODDATA_KEY] = nil
+    vehicle:transmitModData()
+    
+    -- Remove from registry
+    removeFromGlobalRegistry(vehicleHash)
+    
+    VehicleClaim.log("[Contest Claim] Successfully removed abandoned claim: " .. vehicleHash .. " by " .. player:getUsername())
+    
+    sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_RELEASE_SUCCESS, {
+        vehicleHash = vehicleHash,
+        contested = true  -- Flag to show different message on client
+    })
+end
+
 --- Handle add allowed player request
 --- @param player IsoPlayer
 --- @param args table
@@ -826,6 +918,9 @@ function VehicleClaimServer.onClientCommand(module, command, player, args)
 
     elseif command == VehicleClaim.CMD_REQUEST_INFO then
         handleRequestInfo(player, args)
+    
+    elseif command == VehicleClaim.CMD_CONTEST_CLAIM then
+        handleContestClaim(player, args)
 
     elseif command == VehicleClaim.CMD_REQUEST_MY_CLAIMS then
         handleRequestMyClaims(player, args)
@@ -847,6 +942,9 @@ end
 --- If the registry doesn't have this claim, the modData is cleared (allowing remote unclaims)
 --- @param vehicle IsoVehicle
 local function syncVehicleClaimOnLoad(vehicle)
+    if not isServer() then
+        return
+    end
     if not vehicle then
         return
     end

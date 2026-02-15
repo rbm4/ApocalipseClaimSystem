@@ -139,6 +139,64 @@ function ISReleaseVehicleClaimAction:new(character, vehicle, time)
     return o
 end
 
+-----------------------------------------------------------
+-- Timed Action: Contest Claim (for abandoned vehicles)
+-----------------------------------------------------------
+
+ISContestVehicleClaimAction = ISBaseTimedAction:derive("ISContestVehicleClaimAction")
+
+function ISContestVehicleClaimAction:isValid()
+    if not self.vehicle or not self.vehicle:getSquare() then
+        return false
+    end
+    return VehicleClaim.isWithinRange(self.character, self.vehicle)
+end
+
+function ISContestVehicleClaimAction:waitToStart()
+    return false
+end
+
+function ISContestVehicleClaimAction:start()
+    self:setActionAnim("Loot")
+end
+
+function ISContestVehicleClaimAction:stop()
+    ISBaseTimedAction.stop(self)
+end
+
+function ISContestVehicleClaimAction:perform()
+    -- Get vehicle hash
+    local vehicleHash = VehicleClaim.getVehicleHash(self.vehicle)
+    if not vehicleHash then
+        VehicleClaim.log("ERROR: Could not get vehicle hash for contest")
+        ISBaseTimedAction.perform(self)
+        return
+    end
+    
+    -- Mark action as pending
+    VehicleClaim.pendingActions[vehicleHash] = "CONTEST"
+    
+    local steamID = VehicleClaim.getPlayerSteamID(self.character)
+
+    local args = {
+        vehicleHash = vehicleHash,
+        steamID = steamID
+    }
+
+    sendClientCommand(self.character, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_CONTEST_CLAIM, args)
+
+    ISBaseTimedAction.perform(self)
+end
+
+function ISContestVehicleClaimAction:new(character, vehicle, time)
+    local o = ISBaseTimedAction.new(self, character)
+    o.vehicle = vehicle
+    o.maxTime = time
+    o.stopOnWalk = true
+    o.stopOnRun = true
+    return o
+end
+
 --- Handle claim vehicle action
 function VehicleClaimMenu.onClaimVehicle(worldObjects, player, vehicle)
     if not player or not vehicle then

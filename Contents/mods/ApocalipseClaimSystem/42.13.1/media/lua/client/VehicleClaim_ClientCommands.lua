@@ -120,6 +120,13 @@ function VehicleClaimClient.onClaimFailed(args)
         message = message .. getText("UI_VehicleClaim_InitializationFailedError")
     elseif reason == VehicleClaim.ERR_PLAYER_NOT_FOUND then
         message = message .. getText("UI_VehicleClaim_PlayerNotFound")
+    elseif reason == "vehicleNotAbandoned" then
+        local daysRequired = args.daysRequired or 7
+        local daysSince = args.daysSinceLastSeen or 0
+        local daysRemaining = math.max(0, daysRequired - daysSince)
+        message = getText("UI_VehicleClaim_VehicleNotAbandoned", tostring(daysRemaining))
+    elseif reason == "cannotContestOwnVehicle" then
+        message = "Cannot contest your own vehicle. Use the release button instead."
     else
         message = message .. reason
     end
@@ -132,10 +139,15 @@ end
 --- Handle successful release
 function VehicleClaimClient.onReleaseSuccess(args)
     local vehicleHash = args.vehicleHash or "Unknown"
+    local contested = args.contested or false
     local player = getPlayer()
 
     if player then
-        player:Say(getText("UI_VehicleClaim_ReleasedClaimOnVehicle", tostring(vehicleHash)))
+        if contested then
+            player:Say(getText("UI_VehicleClaim_ClaimContested"))
+        else
+            player:Say(getText("UI_VehicleClaim_ReleasedClaimOnVehicle", tostring(vehicleHash)))
+        end
     end
 
     -- Trigger event for reactive components

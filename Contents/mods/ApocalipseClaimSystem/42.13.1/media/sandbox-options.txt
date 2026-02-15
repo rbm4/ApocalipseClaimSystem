@@ -9,3 +9,13 @@ option VehicleClaimSystem.MaxClaimsPerPlayer
     page = VehicleClaimSystem,
     translation = VehicleClaimSystem_MaxClaimsPerPlayer,
 }
+
+option VehicleClaimSystem.AbandonedDaysThreshold
+{
+    type = integer,
+    min = 0,
+    max = 20,
+    default = 7,
+    page = VehicleClaimSystem,
+    translation = VehicleClaimSystem_AbandonedDaysThreshold,
+}

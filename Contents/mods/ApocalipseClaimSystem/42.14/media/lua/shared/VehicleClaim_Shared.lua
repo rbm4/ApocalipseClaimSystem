@@ -2,12 +2,10 @@
     VehicleClaim_Shared.lua
     Common constants, validation helpers, and utility functions
     Loaded on both client and server
-]]
-
-VehicleClaim = VehicleClaim or {}
+]] VehicleClaim = VehicleClaim or {}
 
 -- Global state tracking
-VehicleClaim.pendingActions = VehicleClaim.pendingActions or {}  -- {[vehicleHash] = actionType}
+VehicleClaim.pendingActions = VehicleClaim.pendingActions or {} -- {[vehicleHash] = actionType}
 
 -- Constants
 VehicleClaim.MOD_ID = "VehicleClaim"
@@ -18,20 +16,20 @@ VehicleClaim.MODDATA_KEY = "VehicleClaimData"
 VehicleClaim.OWNER_KEY = "ownerSteamID"
 VehicleClaim.OWNER_NAME_KEY = "ownerName"
 VehicleClaim.VEHICLE_NAME_KEY = "vehicleName"
-VehicleClaim.ALLOWED_PLAYERS_KEY = "allowedPlayers"  -- Table: { [steamID] = playerName }
+VehicleClaim.ALLOWED_PLAYERS_KEY = "allowedPlayers" -- Table: { [steamID] = playerName }
 VehicleClaim.CLAIM_TIME_KEY = "claimTimestamp"
 VehicleClaim.LAST_SEEN_KEY = "lastSeenTimestamp"
-VehicleClaim.VEHICLE_HASH_KEY = "vehicleHash"  -- Unique persistent hash for this vehicle
+VehicleClaim.VEHICLE_HASH_KEY = "vehicleHash" -- Unique persistent hash for this vehicle
 
 -- Proximity settings
-VehicleClaim.CLAIM_DISTANCE = 4.0  -- Max distance to claim/interact
-VehicleClaim.CLAIM_TIME_TICKS = 400  -- Timed action duration (~2 seconds)
+VehicleClaim.CLAIM_DISTANCE = 4.0 -- Max distance to claim/interact
+VehicleClaim.CLAIM_TIME_TICKS = 400 -- Timed action duration (~2 seconds)
 
 -- Command types (client -> server)
 VehicleClaim.CMD_CLAIM = "claimVehicle"
 VehicleClaim.CMD_RELEASE = "releaseClaim"
-VehicleClaim.CMD_RELEASE_REMOTE = "releaseClaimRemote"  -- Release without requiring vehicle to be loaded
-VehicleClaim.CMD_CONTEST_CLAIM = "contestClaim"  -- Contest an abandoned vehicle claim
+VehicleClaim.CMD_RELEASE_REMOTE = "releaseClaimRemote" -- Release without requiring vehicle to be loaded
+VehicleClaim.CMD_CONTEST_CLAIM = "contestClaim" -- Contest an abandoned vehicle claim
 VehicleClaim.CMD_ADD_PLAYER = "addAllowedPlayer"
 VehicleClaim.CMD_REMOVE_PLAYER = "removeAllowedPlayer"
 VehicleClaim.CMD_REQUEST_INFO = "requestVehicleInfo"
@@ -76,20 +74,46 @@ VehicleClaim.GLOBAL_REGISTRY_KEY = "VehicleClaimRegistry"
 -- Utility Functions
 -----------------------------------------------------------
 
+-- Create JSON payload the data parameter
+-- @param killData table containing kill information
+-- @return string JSON formatted string
+function VehicleClaim.createJsonPayload(data)
+    -- Simple JSON serialization (you might want to use a proper JSON library for complex data)
+    local parts = {}
+
+    for key, value in pairs(data) do
+        local valueStr
+        if type(value) == "string" then
+            valueStr = '"' .. value:gsub('"', '\\"') .. '"'
+        elseif type(value) == "number" then
+            valueStr = string.format("%.0f", value)
+        elseif type(value) == "boolean" then
+            valueStr = value and "true" or "false"
+        else
+            valueStr = '"' .. tostring(value) .. '"'
+        end
+        table.insert(parts, '"' .. key .. '":' .. valueStr)
+    end
+
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
 --- Get or generate a unique hash for a vehicle
 --- Hash is stored in vehicle ModData and persists across sessions
 --- @param vehicle IsoVehicle
 --- @return string|nil vehicleHash
 function VehicleClaim.getOrCreateVehicleHash(vehicle)
-    if not vehicle then return nil end
-    
+    if not vehicle then
+        return nil
+    end
+
     local modData = vehicle:getModData()
-    
+
     -- Check if hash already exists in main ModData
     if modData[VehicleClaim.VEHICLE_HASH_KEY] then
         return modData[VehicleClaim.VEHICLE_HASH_KEY]
     end
-    
+
     -- Check if hash exists in claim data (for backwards compatibility)
     local claimData = modData[VehicleClaim.MODDATA_KEY]
     if claimData and claimData[VehicleClaim.VEHICLE_HASH_KEY] then
@@ -98,7 +122,7 @@ function VehicleClaim.getOrCreateVehicleHash(vehicle)
         vehicle:transmitModData()
         return claimData[VehicleClaim.VEHICLE_HASH_KEY]
     end
-    
+
     -- Generate new hash based on vehicle properties
     -- Use multiple vehicle properties to create a unique identifier
     local x = math.floor(vehicle:getX() * 100)
@@ -107,25 +131,25 @@ function VehicleClaim.getOrCreateVehicleHash(vehicle)
     local scriptName = vehicle:getScript() and vehicle:getScript():getName() or "Unknown"
     local timestamp = os.time()
     local random = ZombRand(999999)
-    
+
     -- Create hash string
     local hashSource = string.format("%s_%d_%d_%d_%d_%d", scriptName, x, y, z, timestamp, random)
-    
+
     -- Simple hash function (you could use a more sophisticated one)
     local hash = 0
     for i = 1, #hashSource do
         hash = ((hash * 31) + string.byte(hashSource, i)) % 2147483647
     end
-    
+
     local vehicleHash = string.format("VH%010d", hash)
-    
+
     -- Store in ModData
     modData[VehicleClaim.VEHICLE_HASH_KEY] = vehicleHash
     vehicle:transmitModData()
     if isServer() then
         vehicle:saveToVehicleTable()
     end
-    
+
     return vehicleHash
 end
 
@@ -133,21 +157,23 @@ end
 --- @param vehicle IsoVehicle
 --- @return string|nil vehicleHash
 function VehicleClaim.getVehicleHash(vehicle)
-    if not vehicle then return nil end
-    
+    if not vehicle then
+        return nil
+    end
+
     local modData = vehicle:getModData()
-    
+
     -- Check main ModData first
     if modData[VehicleClaim.VEHICLE_HASH_KEY] then
         return modData[VehicleClaim.VEHICLE_HASH_KEY]
     end
-    
+
     -- Check claim data for backwards compatibility
     local claimData = modData[VehicleClaim.MODDATA_KEY]
     if claimData and claimData[VehicleClaim.VEHICLE_HASH_KEY] then
         return claimData[VehicleClaim.VEHICLE_HASH_KEY]
     end
-    
+
     return nil
 end
 
@@ -157,16 +183,18 @@ end
 --- @param vehicle IsoVehicle
 --- @return table|nil claimData
 function VehicleClaim.getClaimData(vehicle)
-    if not vehicle then return nil end
-    
+    if not vehicle then
+        return nil
+    end
+
     -- Read directly from vehicle's ModData
     local modData = vehicle:getModData()
-    if not modData then return nil end
-    
+    if not modData then
+        return nil
+    end
+
     return modData[VehicleClaim.MODDATA_KEY]
 end
-
-
 
 --- Check if a vehicle is claimed
 --- A vehicle is only claimed if it has claim data AND has a valid owner ID
@@ -178,7 +206,7 @@ function VehicleClaim.isClaimed(vehicle)
     if not data then
         return false
     end
-    
+
     -- Check if ownerID exists and is not empty
     local ownerID = data[VehicleClaim.OWNER_KEY]
     return ownerID ~= nil and ownerID ~= ""
@@ -192,13 +220,13 @@ function VehicleClaim.getOwnerID(vehicle)
     if not data then
         return nil
     end
-    
+
     local ownerID = data[VehicleClaim.OWNER_KEY]
     -- Return nil if owner is empty string
     if ownerID == "" then
         return nil
     end
-    
+
     return ownerID
 end
 
@@ -229,25 +257,27 @@ end
 --- @param steamID string
 --- @return boolean
 function VehicleClaim.hasAccess(vehicle, steamID)
-    if not steamID then return false end
-    
+    if not steamID then
+        return false
+    end
+
     local data = VehicleClaim.getClaimData(vehicle)
     if not data then
         -- Unclaimed vehicles are accessible to everyone
         return true
     end
-    
+
     -- Owner always has access
     if data[VehicleClaim.OWNER_KEY] == steamID then
         return true
     end
-    
+
     -- Check allowed players
     local allowed = data[VehicleClaim.ALLOWED_PLAYERS_KEY]
     if allowed and allowed[steamID] then
         return true
     end
-    
+
     return false
 end
 
@@ -256,12 +286,14 @@ end
 --- @param vehicle IsoVehicle
 --- @return number distance
 function VehicleClaim.getDistance(player, vehicle)
-    if not player or not vehicle then return math.huge end
-    
+    if not player or not vehicle then
+        return math.huge
+    end
+
     local px, py = player:getX(), player:getY()
     local vx, vy = vehicle:getX(), vehicle:getY()
-    
-    return math.sqrt((px - vx)^2 + (py - vy)^2)
+
+    return math.sqrt((px - vx) ^ 2 + (py - vy) ^ 2)
 end
 
 --- Check if player is within claim distance of vehicle
@@ -276,8 +308,10 @@ end
 --- @param player IsoPlayer
 --- @return string|nil steamID
 function VehicleClaim.getPlayerSteamID(player)
-    if not player then return nil end
-    
+    if not player then
+        return nil
+    end
+
     -- Try getSteamID first (multiplayer)
     if player.getSteamID then
         local steamID = player:getSteamID()
@@ -285,38 +319,49 @@ function VehicleClaim.getPlayerSteamID(player)
             return steamID
         end
     end
-    
+
     -- Fallback to username for local/singleplayer
     if player.getUsername then
         return player:getUsername()
     end
-    
+
     return nil
 end
 
 --- Get readable vehicle name
 --- @param vehicle IsoVehicle
 --- @return string
-function VehicleClaim.getVehicleName(vehicle,vehicleID)
-    
-    
+function VehicleClaim.getVehicleName(vehicle, vehicleID)
+
     if vehicleID then
         local vehicleData = getVehicleById(vehicleID)
         if vehicleData then
-            return vehicleData:getName()
+            local name = vehicleData:getName()
+            if name then
+                local translated = getTextOrNull("IGUI_VehicleName" .. name)
+                if translated then
+                    return translated
+                end
+            end
+            return vehicleData:getName() or "Vehicle"
         end
     end
-    
-    if not vehicle then 
-        return "Unknown Vehicle" 
+
+    if not vehicle then
+        return "Unknown Vehicle"
     end
     local script = vehicle:getScript()
     if script then
-        local name = script:getName()
-        if name then return name end
+        local carName = script:getCarModelName() or script:getName()
+        if carName then
+            local translated = getTextOrNull("IGUI_VehicleName" .. carName)
+            if translated then
+                return translated
+            end
+            return carName
+        end
     end
 
-    
     return "Vehicle"
 end
 
@@ -324,28 +369,32 @@ end
 --- @param timestamp number
 --- @return string
 function VehicleClaim.formatTimestamp(timestamp)
-    if not timestamp then return "Unknown" end
-    
+    if not timestamp then
+        return "Unknown"
+    end
+
     local gameTime = getGameTime()
-    if not gameTime then return tostring(timestamp) end
-    
+    if not gameTime then
+        return tostring(timestamp)
+    end
+
     -- Convert to in-game date format
-    return string.format("Day %d, %02d:%02d", 
-        math.floor(timestamp / (24 * 60)),
-        math.floor((timestamp % (24 * 60)) / 60),
-        timestamp % 60)
+    return string.format("Day %d, %02d:%02d", math.floor(timestamp / (24 * 60)),
+        math.floor((timestamp % (24 * 60)) / 60), timestamp % 60)
 end
 
 --- Get current game timestamp (minutes since start)
 --- @return number
 function VehicleClaim.getCurrentTimestamp()
     local gameTime = getGameTime()
-    if not gameTime then return 0 end
-    
+    if not gameTime then
+        return 0
+    end
+
     local day = gameTime:getNightsSurvived()
     local hour = gameTime:getHour()
     local minute = gameTime:getMinutes()
-    
+
     return (day * 24 * 60) + (hour * 60) + minute
 end
 
@@ -388,19 +437,19 @@ end
 function VehicleClaim.isVehicleAbandoned(vehicle)
     local claimData = VehicleClaim.getClaimData(vehicle)
     if not claimData then
-        return false, 0  -- Unclaimed vehicles are not abandoned
+        return false, 0 -- Unclaimed vehicles are not abandoned
     end
-    
+
     local lastSeen = claimData[VehicleClaim.LAST_SEEN_KEY] or 0
     local currentTime = VehicleClaim.getCurrentTimestamp()
     local minutesSinceLastSeen = currentTime - lastSeen
     local inGameDaysSinceLastSeen = minutesSinceLastSeen / (24 * 60)
-    
+
     -- Convert in-game days to real-world days (16 in-game days = 1 real-world day)
     local realWorldDaysSinceLastSeen = inGameDaysSinceLastSeen / 16
-    
-    local threshold = VehicleClaim.getAbandonedDaysThreshold()  -- Threshold is in real-world days
-    
+
+    local threshold = VehicleClaim.getAbandonedDaysThreshold() -- Threshold is in real-world days
+
     return realWorldDaysSinceLastSeen >= threshold, realWorldDaysSinceLastSeen
 end
 
@@ -408,15 +457,21 @@ end
 --- @param steamID string
 --- @return number
 function VehicleClaim.countPlayerClaims(steamID)
-    if not steamID then return 0 end
-    
+    if not steamID then
+        return 0
+    end
+
     local count = 0
     local cell = getCell()
-    if not cell then return 0 end
-    
+    if not cell then
+        return 0
+    end
+
     local vehicles = cell:getVehicles()
-    if not vehicles then return 0 end
-    
+    if not vehicles then
+        return 0
+    end
+
     for i = 0, vehicles:size() - 1 do
         local vehicle = vehicles:get(i)
         if vehicle then
@@ -426,7 +481,7 @@ function VehicleClaim.countPlayerClaims(steamID)
             end
         end
     end
-    
+
     return count
 end
 

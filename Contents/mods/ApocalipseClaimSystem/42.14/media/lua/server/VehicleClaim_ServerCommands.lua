@@ -2,7 +2,9 @@
     VehicleClaim_ServerCommands.lua
     Server-side authoritative command processing
     Validates all requests, enforces ownership, manages modData
-]] require "shared/VehicleClaim_Shared"
+]] 
+require "shared/VehicleClaim_Shared"
+require "server/VehicleClaim_ServerDatabase"
 
 local VehicleClaimServer = {}
 
@@ -376,6 +378,9 @@ local function handleClaimVehicle(player, args)
     if claimData and claimVehicleHash then
         VehicleClaim.log("Vehicle claimed: Hash " .. claimVehicleHash .. " by " .. playerName)
 
+        -- Persist to car database
+        VehicleClaim.updateCarDatabase(vehicle)
+
         -- Notify client with claim data
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_SUCCESS, {
             vehicleHash = claimVehicleHash,
@@ -463,6 +468,9 @@ local function handleReleaseClaim(player, args)
                              player:getUsername())
     end
 
+    -- Remove from car database
+    VehicleClaim.removeFromCarDatabase(vehicleHash)
+
     sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_RELEASE_SUCCESS, {
         vehicleHash = vehicleHash
     })
@@ -524,6 +532,9 @@ local function handleReleaseClaimRemote(player, args)
     removeFromGlobalRegistry(vehicleHash)
     VehicleClaim.log("[Remote Release] Vehicle released from registry: Hash " .. vehicleHash .. " by " ..
                          player:getUsername())
+
+    -- Remove from car database
+    VehicleClaim.removeFromCarDatabase(vehicleHash)
 
     sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_RELEASE_SUCCESS, {
         vehicleHash = vehicleHash
@@ -613,6 +624,9 @@ local function handleContestClaim(player, args)
     
     -- Remove from registry
     removeFromGlobalRegistry(vehicleHash)
+
+    -- Remove from car database
+    VehicleClaim.removeFromCarDatabase(vehicleHash)
     
     VehicleClaim.log("[Contest Claim] Successfully removed abandoned claim: " .. vehicleHash .. " by " .. player:getUsername())
     
@@ -852,6 +866,9 @@ local function handleAdminClearAllClaims(player, args)
     globalModData.claims = {}
     ModData.transmit(VehicleClaim.GLOBAL_REGISTRY_KEY)
 
+    -- Clear the car database file
+    VehicleClaim.clearCarDatabase()
+
     VehicleClaim.log("[ADMIN] Registry cleared. All claims removed.")
     VehicleClaim.log("[ADMIN] Clear all claims operation completed successfully by " .. player:getUsername())
 
@@ -985,6 +1002,8 @@ local function syncVehicleClaimOnLoad(vehicle)
         local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
         if vehicleHash then
             updateRegistryPosition(vehicleHash, vehicle:getX(), vehicle:getY())
+            -- save the car data in the server
+            VehicleClaim.updateCarDatabase(vehicle)
         end
     end
 end

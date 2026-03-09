@@ -293,10 +293,16 @@ local function updateLastSeen(vehicle)
         if (currentTime - lastSeen) >= 5 then
             claimData[VehicleClaim.LAST_SEEN_KEY] = currentTime
 
-            -- Also update position in registry
+            -- Also update position and lastSeen in registry
             local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
             if vehicleHash then
                 updateRegistryPosition(vehicleHash, vehicle:getX(), vehicle:getY())
+                -- Update lastSeen in global registry so "My Vehicles" panel shows correct data
+                local registry = getGlobalRegistry()
+                local entry = registry[vehicleHash]
+                if entry then
+                    entry.lastSeen = currentTime
+                end
             end
 
             vehicle:transmitModData()
@@ -902,6 +908,34 @@ local function handleConsolidateClaims(player, args)
     VehicleClaim.log("Manual consolidation completed: " .. count .. " claims")
 end
 
+--- Handle client request to update last seen (triggered when owned vehicle loads on client)
+--- @param player IsoPlayer
+--- @param args table { vehicleHash, steamID }
+local function handleUpdateLastSeen(player, args)
+    if not args or not args.vehicleHash or not args.steamID then
+        return
+    end
+
+    -- Anti-spoof: verify steamID matches the sending player
+    local actualSteamID = VehicleClaim.getPlayerSteamID(player)
+    if actualSteamID ~= args.steamID then
+        VehicleClaim.log("SECURITY: SteamID mismatch in updateLastSeen from " .. player:getUsername())
+        return
+    end
+
+    local vehicle = findVehicleByHash(args.vehicleHash)
+    if not vehicle then
+        return
+    end
+
+    -- Verify the player actually owns or has access to this vehicle
+    if not VehicleClaim.hasAccess(vehicle, actualSteamID) then
+        return
+    end
+
+    updateLastSeen(vehicle)
+end
+
 -----------------------------------------------------------
 -- Client Command Router
 -----------------------------------------------------------
@@ -944,6 +978,9 @@ function VehicleClaimServer.onClientCommand(module, command, player, args)
 
     elseif command == VehicleClaim.CMD_CONSOLIDATE_CLAIMS then
         handleConsolidateClaims(player, args)
+
+    elseif command == VehicleClaim.CMD_UPDATE_LAST_SEEN then
+        handleUpdateLastSeen(player, args)
 
     elseif command == VehicleClaim.CMD_ADMIN_CLEAR_ALL then
         handleAdminClearAllClaims(player, args)

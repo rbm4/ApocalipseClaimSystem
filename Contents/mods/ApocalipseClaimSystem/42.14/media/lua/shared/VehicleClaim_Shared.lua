@@ -33,6 +33,7 @@ VehicleClaim.CMD_CONTEST_CLAIM = "contestClaim" -- Contest an abandoned vehicle 
 VehicleClaim.CMD_ADD_PLAYER = "addAllowedPlayer"
 VehicleClaim.CMD_REMOVE_PLAYER = "removeAllowedPlayer"
 VehicleClaim.CMD_REQUEST_INFO = "requestVehicleInfo"
+VehicleClaim.CMD_UPDATE_LAST_SEEN = "updateLastSeen" -- Client notifies server when owned vehicle loads nearby
 VehicleClaim.CMD_ADMIN_CLEAR_ALL = "adminClearAllClaims"
 
 -- Response types (server -> client)

@@ -714,8 +714,44 @@ local function initializeHooks()
 end
 
 -----------------------------------------------------------
+-- Vehicle Load: Update Last Seen for Owned Vehicles
+-----------------------------------------------------------
+
+--- When a vehicle loads into the client's world (OnSpawnVehicleStart),
+--- check if the local player owns it and notify the server to update lastSeen.
+--- This covers trailers and other vehicles the player never enters.
+--- @param vehicle IsoVehicle
+function VehicleClaimEnforcement.onVehicleLoad(vehicle)
+    if not vehicle then return end
+
+    local player = getPlayer()
+    if not player then return end
+
+    local claimData = VehicleClaim.getClaimData(vehicle)
+    if not claimData then return end
+
+    local steamID = VehicleClaim.getPlayerSteamID(player)
+    if not steamID then return end
+
+    -- Only update if this player is the owner
+    if claimData[VehicleClaim.OWNER_KEY] ~= steamID then return end
+
+    local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
+    if not vehicleHash then return end
+
+    -- Notify server to update last seen
+    sendClientCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_UPDATE_LAST_SEEN, {
+        vehicleHash = vehicleHash,
+        steamID = steamID
+    })
+end
+
+-----------------------------------------------------------
 -- Event Registration
 -----------------------------------------------------------
+
+-- Register vehicle load hook for last seen updates (covers trailers)
+Events.OnSpawnVehicleStart.Add(VehicleClaimEnforcement.onVehicleLoad)
 
 -- Register context menu blocking
 Events.OnFillWorldObjectContextMenu.Add(onFillWorldObjectContextMenu)

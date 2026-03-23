@@ -64,6 +64,9 @@ function VehicleClaimClient.onServerCommand(module, command, args)
         
     elseif command == VehicleClaim.RESP_ADMIN_CLEAR_ALL_SUCCESS then
         VehicleClaimClient.onAdminClearAllSuccess(args)
+
+    elseif command == VehicleClaim.RESP_SYNC_VEHICLE_MODDATA then
+        VehicleClaimClient.onSyncVehicleModData(args)
     end
 end
 
@@ -417,6 +420,79 @@ function VehicleClaimClient.refreshOpenPanels()
         end
     end
     
+end
+
+-----------------------------------------------------------
+-- Vehicle ModData Sync Handler
+-----------------------------------------------------------
+
+--- Find a vehicle on the client by its hash
+--- @param vehicleHash string
+--- @return IsoVehicle|nil
+local function findLocalVehicleByHash(vehicleHash)
+    if not vehicleHash then
+        return nil
+    end
+
+    local cell = getCell()
+    if not cell then
+        return nil
+    end
+
+    local vehicles = cell:getVehicles()
+    if not vehicles then
+        return nil
+    end
+
+    for i = 0, vehicles:size() - 1 do
+        local vehicle = vehicles:get(i)
+        if vehicle then
+            local hash = VehicleClaim.getVehicleHash(vehicle)
+            if hash == vehicleHash then
+                return vehicle
+            end
+        end
+    end
+
+    return nil
+end
+
+--- Handle server broadcast of vehicle modData changes
+--- Updates the local vehicle's modData so enforcement and UI reflect changes instantly
+function VehicleClaimClient.onSyncVehicleModData(args)
+    local vehicleHash = args.vehicleHash
+    if not vehicleHash then
+        return
+    end
+
+    local vehicle = findLocalVehicleByHash(vehicleHash)
+    if not vehicle then
+        -- Vehicle not loaded on this client - ignore silently
+        -- When vehicle loads later, server's onVehicleCreated sync will handle it
+        return
+    end
+
+    local modData = vehicle:getModData()
+
+    -- Update vehicle hash key if provided
+    if args.vehicleHashKey then
+        modData[VehicleClaim.VEHICLE_HASH_KEY] = args.vehicleHashKey
+    end
+
+    -- Update claim data (nil means unclaimed)
+    local previousClaimData = modData[VehicleClaim.MODDATA_KEY]
+    if args.claimData then
+        modData[VehicleClaim.MODDATA_KEY] = args.claimData
+    else
+        modData[VehicleClaim.MODDATA_KEY] = nil
+    end
+
+    -- Fire appropriate event so UI components refresh
+    if args.claimData then
+        triggerEvent("OnVehicleClaimChanged", vehicleHash, args.claimData)
+    elseif previousClaimData then
+        triggerEvent("OnVehicleClaimReleased", vehicleHash, nil)
+    end
 end
 
 -----------------------------------------------------------

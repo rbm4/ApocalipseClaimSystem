@@ -99,6 +99,48 @@ local function isAdmin(player)
 end
 
 -----------------------------------------------------------
+-- Vehicle ModData Broadcast (replaces vehicle:transmitModData)
+-----------------------------------------------------------
+
+--- Broadcast vehicle modData changes to all online players via sendServerCommand
+--- Each client will find the vehicle locally and update its modData
+--- @param vehicle IsoVehicle
+--- @param vehicleHash string
+local function broadcastVehicleModData(vehicle, vehicleHash)
+    if not vehicle or not vehicleHash then
+        return
+    end
+
+    local modData = vehicle:getModData()
+    local claimData = modData[VehicleClaim.MODDATA_KEY]         -- may be nil (unclaim)
+    local vehicleHashKey = modData[VehicleClaim.VEHICLE_HASH_KEY] -- may be nil
+
+    local syncArgs = {
+        vehicleHash = vehicleHash,
+        vehicleHashKey = vehicleHashKey,
+    }
+
+    -- Only include claimData if it exists (nil means vehicle was unclaimed)
+    if claimData then
+        syncArgs.claimData = claimData
+    end
+
+    local players = getOnlinePlayers()
+    if players then
+        for i = 0, players:size() - 1 do
+            local player = players:get(i)
+            if player then
+                sendServerCommand(player, VehicleClaim.COMMAND_MODULE,
+                    VehicleClaim.RESP_SYNC_VEHICLE_MODDATA, syncArgs)
+            end
+        end
+    end
+end
+
+-- Expose so VehicleClaim_Shared.lua (getOrCreateVehicleHash) can call it server-side
+VehicleClaim.broadcastVehicleModData = broadcastVehicleModData
+
+-----------------------------------------------------------
 -- Global Registry Management
 -----------------------------------------------------------
 
@@ -250,7 +292,7 @@ local function initializeClaimData(vehicle, ownerSteamID, ownerName)
 
     -- Write to ModData (source of truth for access checks)
     modData[VehicleClaim.MODDATA_KEY] = claimData
-    vehicle:transmitModData()
+    broadcastVehicleModData(vehicle, vehicleHash)
 
     -- Also add to global registry (for tracking when vehicle is unloaded)
     addToGlobalRegistry(vehicleHash, ownerSteamID, ownerName, vehicle:getX(), vehicle:getY(), vehicleName)
@@ -276,12 +318,12 @@ local function clearClaimData(vehicle)
     -- Clear ModData
     local modData = vehicle:getModData()
     modData[VehicleClaim.MODDATA_KEY] = nil
-    vehicle:transmitModData()
+    broadcastVehicleModData(vehicle, vehicleHash or "unknown")
     VehicleClaim.log("Cleared ModData for vehicle: " .. tostring(vehicleHash))
 end
 
 --- Update last seen timestamp
---- Only updates if at least 5 minutes have passed since last update to avoid constant modData transmission
+--- Only updates if at least 5 minutes have passed since last update to avoid constant modData broadcast
 --- @param vehicle IsoVehicle
 local function updateLastSeen(vehicle)
     local claimData = VehicleClaim.getClaimData(vehicle)
@@ -305,7 +347,7 @@ local function updateLastSeen(vehicle)
                 end
             end
 
-            vehicle:transmitModData()
+            broadcastVehicleModData(vehicle, vehicleHash)
         end
     end
 end
@@ -510,7 +552,7 @@ local function handleReleaseClaim(player, args)
     -- Clear ModData (vehicle is loaded and player is nearby)
     local modData = vehicle:getModData()
     modData[VehicleClaim.MODDATA_KEY] = nil
-    vehicle:transmitModData()
+    broadcastVehicleModData(vehicle, vehicleHash)
     VehicleClaim.log("Cleared ModData for vehicle: " .. vehicleHash)
 
     -- Remove from global registry if present (lenient - may not exist for legacy claims)
@@ -577,7 +619,7 @@ local function handleReleaseClaimRemote(player, args)
     if vehicle then
         local modData = vehicle:getModData()
         modData[VehicleClaim.MODDATA_KEY] = nil
-        vehicle:transmitModData()
+        broadcastVehicleModData(vehicle, vehicleHash)
         VehicleClaim.log("[Remote Release] Cleared ModData for loaded vehicle: " .. vehicleHash)
     else
         VehicleClaim.log("[Remote Release] Vehicle not loaded - ModData will sync when vehicle loads")
@@ -675,7 +717,7 @@ local function handleContestClaim(player, args)
     -- Clear ModData
     local modData = vehicle:getModData()
     modData[VehicleClaim.MODDATA_KEY] = nil
-    vehicle:transmitModData()
+    broadcastVehicleModData(vehicle, vehicleHash)
     
     -- Remove from registry
     removeFromGlobalRegistry(vehicleHash)
@@ -753,7 +795,7 @@ local function handleAddPlayer(player, args)
             claimData[VehicleClaim.ALLOWED_PLAYERS_KEY] = {}
         end
         claimData[VehicleClaim.ALLOWED_PLAYERS_KEY][targetSteamID] = targetPlayerName
-        vehicle:transmitModData()
+        broadcastVehicleModData(vehicle, vehicleHash)
 
         -- Also update in global registry (for display in panels when vehicle unloaded)
         updateRegistryAllowedPlayers(vehicleHash, claimData[VehicleClaim.ALLOWED_PLAYERS_KEY])
@@ -821,7 +863,7 @@ local function handleRemovePlayer(player, args)
     if claimData and claimData[VehicleClaim.ALLOWED_PLAYERS_KEY] then
         local removedName = claimData[VehicleClaim.ALLOWED_PLAYERS_KEY][targetSteamID] or "Player"
         claimData[VehicleClaim.ALLOWED_PLAYERS_KEY][targetSteamID] = nil
-        vehicle:transmitModData()
+        broadcastVehicleModData(vehicle, vehicleHash)
 
         -- Also update in global registry (for display in panels when vehicle unloaded)
         updateRegistryAllowedPlayers(vehicleHash, claimData[VehicleClaim.ALLOWED_PLAYERS_KEY])
@@ -1080,7 +1122,7 @@ local function syncVehicleClaimOnLoad(vehicle)
 
         local modData = vehicle:getModData()
         modData[VehicleClaim.MODDATA_KEY] = nil
-        vehicle:transmitModData()
+        broadcastVehicleModData(vehicle, vehicleHash)
 
         VehicleClaim.log("[Sync] Cleared stale claim data from vehicle " .. vehicleHash)
     else

@@ -45,6 +45,7 @@ VehicleClaim.RESP_PLAYER_REMOVED = "playerRemoved"
 VehicleClaim.RESP_ACCESS_DENIED = "accessDenied"
 VehicleClaim.RESP_VEHICLE_INFO = "vehicleInfo"
 VehicleClaim.RESP_ADMIN_CLEAR_ALL_SUCCESS = "adminClearAllSuccess"
+VehicleClaim.RESP_SYNC_VEHICLE_MODDATA = "syncVehicleModData" -- Broadcast vehicle modData changes to clients
 
 -- Error codes
 VehicleClaim.ERR_VEHICLE_NOT_FOUND = "vehicleNotFound"
@@ -120,7 +121,9 @@ function VehicleClaim.getOrCreateVehicleHash(vehicle)
     if claimData and claimData[VehicleClaim.VEHICLE_HASH_KEY] then
         -- Migrate to main ModData for faster access
         modData[VehicleClaim.VEHICLE_HASH_KEY] = claimData[VehicleClaim.VEHICLE_HASH_KEY]
-        vehicle:transmitModData()
+        if isServer() and VehicleClaim.broadcastVehicleModData then
+            VehicleClaim.broadcastVehicleModData(vehicle, claimData[VehicleClaim.VEHICLE_HASH_KEY])
+        end
         return claimData[VehicleClaim.VEHICLE_HASH_KEY]
     end
 
@@ -146,8 +149,10 @@ function VehicleClaim.getOrCreateVehicleHash(vehicle)
 
     -- Store in ModData
     modData[VehicleClaim.VEHICLE_HASH_KEY] = vehicleHash
-    vehicle:transmitModData()
     if isServer() then
+        if VehicleClaim.broadcastVehicleModData then
+            VehicleClaim.broadcastVehicleModData(vehicle, vehicleHash)
+        end
         vehicle:saveToVehicleTable()
     end
 
@@ -180,7 +185,7 @@ end
 
 --- Get the claim data table from a vehicle's modData
 --- ModData is the single source of truth for claim data
---- Server transmits changes automatically via transmitModData()
+--- Server broadcasts changes to clients via sendServerCommand (syncVehicleModData)
 --- @param vehicle IsoVehicle
 --- @return table|nil claimData
 function VehicleClaim.getClaimData(vehicle)

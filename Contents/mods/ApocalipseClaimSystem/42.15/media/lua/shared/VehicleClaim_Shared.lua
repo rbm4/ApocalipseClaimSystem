@@ -22,7 +22,7 @@ VehicleClaim.LAST_SEEN_KEY = "lastSeenTimestamp"
 VehicleClaim.VEHICLE_HASH_KEY = "vehicleHash" -- Unique persistent hash for this vehicle
 
 -- Proximity settings
-VehicleClaim.CLAIM_DISTANCE = 4.0 -- Max distance to claim/interact
+VehicleClaim.CLAIM_DISTANCE = 8.0 -- Max distance to claim/interact
 VehicleClaim.CLAIM_TIME_TICKS = 400 -- Timed action duration (~2 seconds)
 
 -- Command types (client -> server)
@@ -35,6 +35,7 @@ VehicleClaim.CMD_REMOVE_PLAYER = "removeAllowedPlayer"
 VehicleClaim.CMD_REQUEST_INFO = "requestVehicleInfo"
 VehicleClaim.CMD_UPDATE_LAST_SEEN = "updateLastSeen" -- Client notifies server when owned vehicle loads nearby
 VehicleClaim.CMD_ADMIN_CLEAR_ALL = "adminClearAllClaims"
+VehicleClaim.CMD_REQUEST_HASH = "requestVehicleHash" -- Request server to generate hash for a vehicle
 
 -- Response types (server -> client)
 VehicleClaim.RESP_CLAIM_SUCCESS = "claimSuccess"
@@ -46,6 +47,7 @@ VehicleClaim.RESP_ACCESS_DENIED = "accessDenied"
 VehicleClaim.RESP_VEHICLE_INFO = "vehicleInfo"
 VehicleClaim.RESP_ADMIN_CLEAR_ALL_SUCCESS = "adminClearAllSuccess"
 VehicleClaim.RESP_SYNC_VEHICLE_MODDATA = "syncVehicleModData" -- Broadcast vehicle modData changes to clients
+VehicleClaim.RESP_VEHICLE_HASH = "vehicleHash" -- Response with generated vehicle hash
 
 -- Error codes
 VehicleClaim.ERR_VEHICLE_NOT_FOUND = "vehicleNotFound"
@@ -133,7 +135,7 @@ function VehicleClaim.getOrCreateVehicleHash(vehicle)
     local y = math.floor(vehicle:getY() * 100)
     local z = math.floor(vehicle:getZ() * 100)
     local scriptName = vehicle:getScript() and vehicle:getScript():getName() or "Unknown"
-    local timestamp = os.time()
+    local timestamp = getTimestampMs()
     local random = ZombRand(999999)
 
     -- Create hash string

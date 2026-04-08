@@ -67,6 +67,9 @@ function VehicleClaimClient.onServerCommand(module, command, args)
 
     elseif command == VehicleClaim.RESP_SYNC_VEHICLE_MODDATA then
         VehicleClaimClient.onSyncVehicleModData(args)
+
+    elseif command == VehicleClaim.RESP_VEHICLE_HASH then
+        VehicleClaimClient.onVehicleHash(args)
     end
 end
 
@@ -466,6 +469,22 @@ function VehicleClaimClient.onSyncVehicleModData(args)
     end
 
     local vehicle = findLocalVehicleByHash(vehicleHash)
+    if not vehicle and args.vehicleTempId then
+        -- Hash not synced yet on this client - try finding by vehicle ID
+        local cell = getCell()
+        if cell then
+            local vehicles = cell:getVehicles()
+            if vehicles then
+                for i = 0, vehicles:size() - 1 do
+                    local v = vehicles:get(i)
+                    if v and v:getId() == args.vehicleTempId then
+                        vehicle = v
+                        break
+                    end
+                end
+            end
+        end
+    end
     if not vehicle then
         -- Vehicle not loaded on this client - ignore silently
         -- When vehicle loads later, server's onVehicleCreated sync will handle it
@@ -492,6 +511,55 @@ function VehicleClaimClient.onSyncVehicleModData(args)
         triggerEvent("OnVehicleClaimChanged", vehicleHash, args.claimData)
     elseif previousClaimData then
         triggerEvent("OnVehicleClaimReleased", vehicleHash, nil)
+    elseif args.vehicleHashKey then
+        -- Hash was synced but no claim data changed - notify UI panels
+        triggerEvent("OnVehicleHashGenerated", vehicleHash, vehicle)
+    end
+end
+
+--- Handle server response with a generated vehicle hash
+--- Finds the local vehicle by position and stores the hash in its modData
+function VehicleClaimClient.onVehicleHash(args)
+    local vehicleHash = args.vehicleHash
+    local vehicleX = args.vehicleX
+    local vehicleY = args.vehicleY
+
+    if not vehicleHash or not vehicleX or not vehicleY then
+        return
+    end
+
+    local cell = getCell()
+    if not cell then
+        return
+    end
+
+    local vehicles = cell:getVehicles()
+    if not vehicles then
+        return
+    end
+
+    -- Find the local vehicle by position
+    local bestVehicle = nil
+    local bestDist = 2.0
+
+    for i = 0, vehicles:size() - 1 do
+        local vehicle = vehicles:get(i)
+        if vehicle then
+            local dx = vehicle:getX() - vehicleX
+            local dy = vehicle:getY() - vehicleY
+            local dist = math.sqrt(dx * dx + dy * dy)
+            if dist < bestDist then
+                bestDist = dist
+                bestVehicle = vehicle
+            end
+        end
+    end
+
+    if bestVehicle then
+        local modData = bestVehicle:getModData()
+        modData[VehicleClaim.VEHICLE_HASH_KEY] = vehicleHash
+        VehicleClaim.log("Received vehicle hash: " .. vehicleHash)
+        triggerEvent("OnVehicleHashGenerated", vehicleHash, bestVehicle)
     end
 end
 

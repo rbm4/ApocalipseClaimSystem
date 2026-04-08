@@ -2,8 +2,11 @@
     VehicleClaim_ContextMenu.lua
     Client-side context menu integration and timed actions
     Adds claim/manage options to vehicle right-click menu
-]] require "shared/VehicleClaim_Shared"
+]]
+
+require "shared/VehicleClaim_Shared"
 require "client/ui/ISVehicleClaimPanel"
+require "client/ui/ISVehicleClaimStatusPanel"
 
 local VehicleClaimMenu = {}
 
@@ -14,11 +17,11 @@ local VehicleClaimMenu = {}
 ISClaimVehicleAction = ISBaseTimedAction:derive("ISClaimVehicleAction")
 
 function ISClaimVehicleAction:isValid()
-    -- Validate vehicle still exists and is in range
+    -- Validate vehicle still exists (pathfinding handles positioning)
     if not self.vehicle or not self.vehicle:getSquare() then
         return false
     end
-    return VehicleClaim.isWithinRange(self.character, self.vehicle)
+    return true
 end
 
 function ISClaimVehicleAction:waitToStart()
@@ -91,7 +94,7 @@ function ISReleaseVehicleClaimAction:isValid()
     if not self.vehicle or not self.vehicle:getSquare() then
         return false
     end
-    return VehicleClaim.isWithinRange(self.character, self.vehicle)
+    return true
 end
 
 function ISReleaseVehicleClaimAction:waitToStart()
@@ -146,10 +149,11 @@ end
 ISContestVehicleClaimAction = ISBaseTimedAction:derive("ISContestVehicleClaimAction")
 
 function ISContestVehicleClaimAction:isValid()
+    -- Validate vehicle still exists (pathfinding handles positioning)
     if not self.vehicle or not self.vehicle:getSquare() then
         return false
     end
-    return VehicleClaim.isWithinRange(self.character, self.vehicle)
+    return true
 end
 
 function ISContestVehicleClaimAction:waitToStart()
@@ -226,6 +230,83 @@ function VehicleClaimMenu.onOpenManagePanel(worldObjects, player, vehicle)
 
     -- Import UI panel (deferred to avoid circular deps)
     local panel = ISVehicleClaimPanel:new(100, 100, 400, 500, player, vehicle)
+    panel:initialise()
+    panel:addToUIManager()
+    panel:setVisible(true)
+end
+
+-----------------------------------------------------------
+-- Context Menu: Vehicle Claim option
+-----------------------------------------------------------
+
+--- Add "Vehicle Claim" option to vehicle right-click context menu
+--- Shows current claim status in tooltip and opens the status panel on click
+function VehicleClaimMenu.onFillWorldObjectContextMenu(playerNum, context, worldObjects, test)
+    if test then return end
+
+    local player = getSpecificPlayer(playerNum)
+    if not player then return end
+
+    -- Find a vehicle in the clicked world objects
+    -- Check both direct BaseVehicle instances and squares containing a vehicle
+    local vehicle = nil
+    for _, obj in ipairs(worldObjects) do
+        if instanceof(obj, "BaseVehicle") then
+            vehicle = obj
+            break
+        elseif obj:getSquare() and obj:getSquare():getVehicleContainer() then
+            vehicle = obj:getSquare():getVehicleContainer()
+            break
+        end
+    end
+    if not vehicle then return end
+
+    -- Read current claim data for tooltip
+    local claimData = VehicleClaim.getClaimData(vehicle)
+    local isClaimed = claimData ~= nil
+    local ownerName = claimData and claimData[VehicleClaim.OWNER_NAME_KEY]
+    local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
+
+    -- Build tooltip description
+    local tooltipDesc
+    if isClaimed then
+        local steamID = VehicleClaim.getPlayerSteamID(player)
+        local ownerID = claimData[VehicleClaim.OWNER_KEY]
+        if ownerID == steamID then
+            tooltipDesc = getText("UI_VehicleClaim_OwnerYou")
+        else
+            local allowedPlayers = claimData[VehicleClaim.ALLOWED_PLAYERS_KEY] or {}
+            if allowedPlayers[steamID] then
+                tooltipDesc = getText("UI_VehicleClaim_OwnerLabel", ownerName or getText("UI_VehicleClaim_Unknown")) .. " " .. getText("UI_VehicleClaim_AccessGranted")
+            else
+                tooltipDesc = getText("UI_VehicleClaim_OwnerLabel", ownerName or getText("UI_VehicleClaim_Unknown")) .. " " .. getText("UI_VehicleClaim_NoAccess")
+            end
+        end
+    else
+        tooltipDesc = getText("UI_VehicleClaim_AvailableToClaim")
+    end
+
+    -- Add menu option
+    local option = context:addOption(getText("UI_VehicleClaim_ContextTitle"), worldObjects, VehicleClaimMenu.onOpenStatusPanel, player, vehicle)
+
+    local tooltip = ISWorldObjectContextMenu.addToolTip()
+    tooltip:setName(getText("UI_VehicleClaim_ContextTitle"))
+    tooltip.description = tooltipDesc
+    option.toolTip = tooltip
+end
+
+--- Open the standalone claim status panel
+function VehicleClaimMenu.onOpenStatusPanel(worldObjects, player, vehicle)
+    if not player or not vehicle then return end
+
+    local screenW = getCore():getScreenWidth()
+    local screenH = getCore():getScreenHeight()
+    local panelW = 320
+    local panelH = 260
+    local panelX = (screenW - panelW) / 2
+    local panelY = (screenH - panelH) / 2
+
+    local panel = ISVehicleClaimStatusPanel:new(panelX, panelY, panelW, panelH, vehicle, player)
     panel:initialise()
     panel:addToUIManager()
     panel:setVisible(true)

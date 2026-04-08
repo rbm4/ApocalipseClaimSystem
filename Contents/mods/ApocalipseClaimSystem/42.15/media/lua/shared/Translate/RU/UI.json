@@ -65,7 +65,7 @@
     "UI_VehicleClaim_VehicleNotLoaded": "Машина не загружена. Подойдите ближе для управления.",
     "UI_VehicleClaim_MustBeNearVehicleNotLoaded": "Нужно быть рядом с машиной, чтобы снять приват.\n\nМашина сейчас не загружена.",
     "UI_VehicleClaim_MustBeNearVehicleTooFar": "Нужно быть рядом с машиной, чтобы снять приват.\n\nВы слишком далеко.",
-    "UI_VehicleClaim_ReleaseRemoteConfirm": "Удалённо снять приват на машину?\n\nПриват с машины будет снят при загрузке.",
+    "UI_VehicleClaim_ReleaseRemoteConfirm": "Удалённо снять приват на машину?\n\n",
     "UI_VehicleClaim_RemoteReleaseInitiated": "Начат процесс снятия привата. Машина будет синхронизирована при загрузке.",
     "UI_VehicleClaim_MechanicsTitle": "Владение машиной",
     "UI_VehicleClaim_VehicleIDLoading": "ID машины: Загрузка...",

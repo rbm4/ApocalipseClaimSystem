@@ -118,6 +118,7 @@ local function broadcastVehicleModData(vehicle, vehicleHash)
     local syncArgs = {
         vehicleHash = vehicleHash,
         vehicleHashKey = vehicleHashKey,
+        vehicleTempId = vehicle:getId()
     }
 
     -- Only include claimData if it exists (nil means vehicle was unclaimed)
@@ -1027,6 +1028,65 @@ local function handleUpdateLastSeen(player, args)
     updateLastSeen(vehicle)
 end
 
+--- Handle client request to generate a vehicle hash
+--- The client sends the vehicle position so the server can find it and generate a hash
+--- @param player IsoPlayer
+--- @param args table { vehicleX, vehicleY, vehicleZ }
+local function handleRequestVehicleHash(player, args)
+    if not args or not args.vehicleX or not args.vehicleY then
+        VehicleClaim.log("RequestHash rejected: missing position parameters")
+        return
+    end
+
+    local targetX = args.vehicleX
+    local targetY = args.vehicleY
+    local targetZ = args.vehicleZ or 0
+
+    -- Find the closest vehicle at the given position
+    local vehicles = getCell():getVehicles()
+    if not vehicles then
+        return
+    end
+
+    local bestVehicle = nil
+    local bestDist = 2.0 -- Max distance tolerance for matching
+
+    for i = 0, vehicles:size() - 1 do
+        local vehicle = vehicles:get(i)
+        if vehicle then
+            local dx = vehicle:getX() - targetX
+            local dy = vehicle:getY() - targetY
+            local dist = math.sqrt(dx * dx + dy * dy)
+            if dist < bestDist then
+                bestDist = dist
+                bestVehicle = vehicle
+            end
+        end
+    end
+
+    if not bestVehicle then
+        VehicleClaim.log("RequestHash: No vehicle found at position " .. targetX .. ", " .. targetY)
+        return
+    end
+
+    -- Generate hash (or return existing one)
+    local vehicleHash = VehicleClaim.getOrCreateVehicleHash(bestVehicle)
+    if not vehicleHash then
+        VehicleClaim.log("RequestHash: Failed to generate hash")
+        return
+    end
+
+    VehicleClaim.log("RequestHash: Generated hash " .. vehicleHash .. " for vehicle at " .. targetX .. ", " .. targetY)
+
+    -- Send the hash back to the requesting player with position so client can match the vehicle
+    sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_VEHICLE_HASH, {
+        vehicleHash = vehicleHash,
+        vehicleX = bestVehicle:getX(),
+        vehicleY = bestVehicle:getY(),
+        vehicleZ = bestVehicle:getZ()
+    })
+end
+
 -----------------------------------------------------------
 -- Client Command Router
 -----------------------------------------------------------
@@ -1075,6 +1135,9 @@ function VehicleClaimServer.onClientCommand(module, command, player, args)
 
     elseif command == VehicleClaim.CMD_ADMIN_CLEAR_ALL then
         handleAdminClearAllClaims(player, args)
+
+    elseif command == VehicleClaim.CMD_REQUEST_HASH then
+        handleRequestVehicleHash(player, args)
     end
 end
 

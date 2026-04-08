@@ -506,7 +506,7 @@ function VehicleClaim.updateCarDatabase(vehicle)
         scriptName = scriptName,
         x = vehicle:getX(),
         y = vehicle:getY(),
-        lastUpdated = string.format("%.0f", os.time()),
+        lastUpdated = string.format("%.0f", getTimestampMs()),
         items = buildItemInventory(vehicle)
     }
 

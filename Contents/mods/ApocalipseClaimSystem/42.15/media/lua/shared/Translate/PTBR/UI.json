@@ -65,7 +65,7 @@
     "UI_VehicleClaim_VehicleNotLoaded": "Este veiculo nao esta carregado. Va mais perto para gerenciar.",
     "UI_VehicleClaim_MustBeNearVehicleNotLoaded": "Voce deve estar perto do veiculo para liberar a reivindicacao.\n\nO veiculo nao esta carregado no momento.",
     "UI_VehicleClaim_MustBeNearVehicleTooFar": "Voce deve estar perto do veiculo para liberar a reivindicacao.\n\nVoce esta muito longe.",
-    "UI_VehicleClaim_ReleaseRemoteConfirm": "Liberar propriedade deste veiculo remotamente?\n\nO veiculo sera desclamado quando for carregado novamente.",
+    "UI_VehicleClaim_ReleaseRemoteConfirm": "Liberar propriedade deste veiculo?\n\n",
     "UI_VehicleClaim_RemoteReleaseInitiated": "Liberacao remota iniciada. O veiculo sincronizara quando carregado.",
     "UI_VehicleClaim_MechanicsTitle": "Propriedade do Veiculo",
     "UI_VehicleClaim_VehicleIDLoading": "ID do Veiculo: Carregando...",

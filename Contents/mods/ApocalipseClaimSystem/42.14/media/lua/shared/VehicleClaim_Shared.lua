@@ -130,7 +130,7 @@ function VehicleClaim.getOrCreateVehicleHash(vehicle)
     local y = math.floor(vehicle:getY() * 100)
     local z = math.floor(vehicle:getZ() * 100)
     local scriptName = vehicle:getScript() and vehicle:getScript():getName() or "Unknown"
-    local timestamp = os.time()
+    local timestamp = getTimestampMs()
     local random = ZombRand(999999)
 
     -- Create hash string

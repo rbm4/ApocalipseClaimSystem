@@ -25,7 +25,6 @@ function ISVehicleClaimPanel:new(x, y, width, height, player, vehicle, vehicleHa
     o.vehicle = vehicle -- Optional: only provided when opened from context menu
     o.vehicleHash = vehicleHash or (vehicle and VehicleClaim.getOrCreateVehicleHash(vehicle))
     o.cachedClaimData = claimData -- Pre-loaded claim data from server
-    
 
     o.backgroundColor = {
         r = 0.1,
@@ -233,7 +232,7 @@ function ISVehicleClaimPanel:setupEventListeners()
             self:refreshData()
         end
     end
-    
+
     -- Handler for when claim is released
     self.onClaimReleasedHandler = function(vehicleHash, claimData)
         -- Close panel if this vehicle's claim was released
@@ -241,7 +240,7 @@ function ISVehicleClaimPanel:setupEventListeners()
             self:onClose()
         end
     end
-    
+
     -- Register event handlers
     Events.OnVehicleClaimAccessChanged.Add(self.onAccessChangedHandler)
     Events.OnVehicleClaimReleased.Add(self.onClaimReleasedHandler)
@@ -252,7 +251,7 @@ function ISVehicleClaimPanel:removeEventListeners()
         Events.OnVehicleClaimAccessChanged.Remove(self.onAccessChangedHandler)
         self.onAccessChangedHandler = nil
     end
-    
+
     if self.onClaimReleasedHandler then
         Events.OnVehicleClaimReleased.Remove(self.onClaimReleasedHandler)
         self.onClaimReleasedHandler = nil
@@ -426,33 +425,11 @@ function ISVehicleClaimPanel:onRemovePlayer()
 end
 
 function ISVehicleClaimPanel:onReleaseClaim()
-    -- Check if vehicle is loaded and player is nearby
-    if not self.vehicle then
-        -- Vehicle not loaded - allow remote unclaim
-        local modal = ISModalDialog:new(self.x + 50, self.y + 100, 380, 140, 
-            getText("UI_VehicleClaim_ReleaseRemoteConfirm"), 
-            true, self, ISVehicleClaimPanel.onReleaseRemoteConfirm)
-        modal:initialise()
-        modal:addToUIManager()
-        return
-    end
-    
-    -- Check proximity (vehicle is loaded)
-    if not VehicleClaim.isWithinRange(self.player, self.vehicle) then
-        -- Vehicle is loaded but too far - offer remote unclaim
-        local modal = ISModalDialog:new(self.x + 50, self.y + 100, 380, 140, 
-            getText("UI_VehicleClaim_ReleaseRemoteConfirm"), 
-            true, self, ISVehicleClaimPanel.onReleaseRemoteConfirm)
-        modal:initialise()
-        modal:addToUIManager()
-        return
-    end
-    
-    -- Vehicle is loaded and nearby - standard unclaim
-    local modal = ISModalDialog:new(self.x + 50, self.y + 100, 280, 100, getText("UI_VehicleClaim_ReleaseConfirm"),
-        true, self, ISVehicleClaimPanel.onReleaseConfirm)
+    local modal = ISModalDialog:new(self.x + 50, self.y + 100, 380, 140,
+        getText("UI_VehicleClaim_ReleaseRemoteConfirm"), true, self, ISVehicleClaimPanel.onReleaseRemoteConfirm)
     modal:initialise()
     modal:addToUIManager()
+    return
 end
 
 function ISVehicleClaimPanel:onReleaseRemoteConfirm(button)
@@ -463,10 +440,10 @@ function ISVehicleClaimPanel:onReleaseRemoteConfirm(button)
             steamID = VehicleClaim.getPlayerSteamID(self.player)
         }
         sendClientCommand(self.player, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_RELEASE_REMOTE, args)
-        
+
         -- Show notification
         self.player:Say(getText("UI_VehicleClaim_RemoteReleaseInitiated"))
-        
+
         -- Close panel
         self:onClose()
     end

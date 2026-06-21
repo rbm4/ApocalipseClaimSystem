@@ -584,7 +584,7 @@ end
 -----------------------------------------------------------
 
 -- Periodic flush every ~60 seconds (in-game minute)
-Events.EveryOneMinute.Add(onPeriodicFlush)
+Events.EveryHour.Add(onPeriodicFlush)
 
 -- Flush on server shutdown / game exit to avoid data loss
 if Events.OnServerShutdown then

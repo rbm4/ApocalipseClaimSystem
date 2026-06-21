@@ -314,6 +314,63 @@ local function hookVehiclePartActions()
             return originalIsValid(self)
         end
     end
+
+    -- Hook ISTakeEngineParts.isValid
+    if ISTakeEngineParts then
+        local originalIsValid = ISTakeEngineParts.isValid
+        ISTakeEngineParts.isValid = function(self)
+            local vehicle = self.vehicle
+            if not vehicle and self.part then
+                pcall(function()
+                    if self.part.getVehicle then
+                        vehicle = self.part:getVehicle()
+                    end
+                end)
+            end
+            if vehicle and self.character then
+                if not VehicleClaimEnforcement.hasAccess(self.character, vehicle) then
+                    self.character:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
+                    return false
+                end
+            end
+            return originalIsValid(self)
+        end
+    end
+end
+
+-----------------------------------------------------------
+-- Animal Trailer Blocking (Remove/Add animal from claimed trailer)
+-----------------------------------------------------------
+
+--- Block removing or adding animals to/from a claimed trailer the player doesn't own
+local function hookAnimalTrailer()
+    -- Hook ISRemoveAnimalFromTrailer.isValid
+    if ISRemoveAnimalFromTrailer then
+        local originalIsValid = ISRemoveAnimalFromTrailer.isValid
+        ISRemoveAnimalFromTrailer.isValid = function(self)
+            if self.vehicle and self.character then
+                if not VehicleClaimEnforcement.hasAccess(self.character, self.vehicle) then
+                    self.character:Say(VehicleClaimEnforcement.getDenialMessage(self.vehicle))
+                    return false
+                end
+            end
+            return originalIsValid(self)
+        end
+    end
+
+    -- Hook ISAddAnimalInTrailer.isValid
+    if ISAddAnimalInTrailer then
+        local originalIsValid = ISAddAnimalInTrailer.isValid
+        ISAddAnimalInTrailer.isValid = function(self)
+            if self.vehicle and self.character then
+                if not VehicleClaimEnforcement.hasAccess(self.character, self.vehicle) then
+                    self.character:Say(VehicleClaimEnforcement.getDenialMessage(self.vehicle))
+                    return false
+                end
+            end
+            return originalIsValid(self)
+        end
+    end
 end
 
 --- Alternative: Hook ISVehicleMechanics:new to prevent panel creation
@@ -709,7 +766,8 @@ local function initializeHooks()
     hookHotwire()
     hookLockDoors()
     hookSleepInVehicle()
-    hookVehiclePartActions()    -- Block install/uninstall/repair parts
+    hookVehiclePartActions()    -- Block install/uninstall/repair parts (incl. engine parts)
+    hookAnimalTrailer()         -- Block remove/add animals from claimed trailers
     hookTowTrailer()            -- Block attach/detach trailer
     
     print("[VehicleClaim] Enforcement hooks initialized")

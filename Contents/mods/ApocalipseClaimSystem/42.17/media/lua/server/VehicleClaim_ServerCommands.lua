@@ -478,7 +478,7 @@ local function handleClaimVehicle(player, args)
         end
 
         -- Persist to car database
-        VehicleClaim.updateCarDatabase(vehicle)
+        --VehicleClaim.updateCarDatabase(vehicle)
 
         -- Notify client with claim data
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_SUCCESS, {
@@ -1196,7 +1196,7 @@ local function syncVehicleClaimOnLoad(vehicle)
         if vehicleHash then
             updateRegistryPosition(vehicleHash, vehicle:getX(), vehicle:getY())
             -- save the car data in the server
-            VehicleClaim.updateCarDatabase(vehicle)
+            --VehicleClaim.updateCarDatabase(vehicle)
         end
     end
 end

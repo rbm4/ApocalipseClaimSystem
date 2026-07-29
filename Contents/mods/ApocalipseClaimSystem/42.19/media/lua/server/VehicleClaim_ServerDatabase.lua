@@ -5,9 +5,9 @@
     GlobalModData is the source of truth for which cars are claimed.
     This module maintains a throttled filesystem projection for external
     services:
-      - VehicleClaimSystemDatabase/index.json lists currently claimed cars
-      - VehicleClaimSystemDatabase/cars/<vehicleHash>.json stores snapshots
-      - VehicleClaimSystemDatabase/deleted/<vehicleHash>.json stores tombstones
+      - VehicleClaimSystemDatabase/index.txt lists currently claimed cars
+      - VehicleClaimSystemDatabase/cars/<vehicleHash>.txt stores snapshots
+      - VehicleClaimSystemDatabase/deleted/<vehicleHash>.txt stores tombstones
 
     Vehicle item contents are captured only when the vehicle is loaded, using
     the same pattern as the older monolithic JSON database.
@@ -342,6 +342,8 @@ end
 
 local EXPORT_VERSION = 2
 local FLUSH_INTERVAL_MS = 30 * 60 * 1000
+local VEHICLE_EXPORT_COOLDOWN_MS = 5 * 60 * 1000
+local POSITION_TOLERANCE = 10
 local OPS_PER_TICK = 1
 
 local database = {} -- In-memory cache: { [vehicleHash] = vehicleEntry }
@@ -350,6 +352,8 @@ local indexDirty = false
 local dirtyCars = {}
 local deletedCars = {}
 local pendingOps = {}
+local queuedCarOps = {}
+local lastVehicleLoadExportAt = {}
 local nextFlushAtMs = 0
 local flushInProgress = false
 
@@ -381,15 +385,15 @@ local function getSafeVehicleFilename(vehicleHash)
 end
 
 local function getIndexFilename()
-    return getDatabaseDirectory() .. "/index.json"
+    return getDatabaseDirectory() .. "/index.txt"
 end
 
 local function getCarFilename(vehicleHash)
-    return getDatabaseDirectory() .. "/cars/" .. getSafeVehicleFilename(vehicleHash) .. ".json"
+    return getDatabaseDirectory() .. "/cars/" .. getSafeVehicleFilename(vehicleHash) .. ".txt"
 end
 
 local function getDeletedFilename(vehicleHash)
-    return getDatabaseDirectory() .. "/deleted/" .. getSafeVehicleFilename(vehicleHash) .. ".json"
+    return getDatabaseDirectory() .. "/deleted/" .. getSafeVehicleFilename(vehicleHash) .. ".txt"
 end
 
 --- Read a JSON file from the Lua cache directory
@@ -451,6 +455,14 @@ local function countEntries(t)
     return count
 end
 
+local function hasMaterialPositionChange(previous, x, y)
+    if not previous then
+        return true
+    end
+
+    return math.abs((previous.x or 0) - x) > POSITION_TOLERANCE or math.abs((previous.y or 0) - y) > POSITION_TOLERANCE
+end
+
 --- Convert the in-memory database to a compact index for external readers
 --- @return table
 local function buildIndex()
@@ -497,6 +509,7 @@ local function buildEntryFromRegistry(vehicleHash, claimData, previous)
         x = claimData.x or previous.x or 0,
         y = claimData.y or previous.y or 0,
         lastUpdated = previous.lastUpdated or string.format("%.0f", getTimestampMs()),
+        hasInventorySnapshot = previous.hasInventorySnapshot or previous.items ~= nil,
         items = previous.items or {}
     }
 end
@@ -571,17 +584,36 @@ local function enqueueIndexWrite()
 end
 
 local function enqueueCarWrite(vehicleHash)
+    if queuedCarOps[vehicleHash] then
+        return false
+    end
+    queuedCarOps[vehicleHash] = true
     enqueueOp({
         type = "car",
         vehicleHash = vehicleHash
     })
+    return true
 end
 
 local function enqueueDeleteWrite(vehicleHash)
+    queuedCarOps[vehicleHash] = nil
     enqueueOp({
         type = "delete",
         vehicleHash = vehicleHash
     })
+end
+
+local function queueVehicleLoadExport(vehicleHash)
+    local now = getTimestampMs()
+    local lastQueuedAt = lastVehicleLoadExportAt[vehicleHash] or 0
+    if now - lastQueuedAt < VEHICLE_EXPORT_COOLDOWN_MS then
+        return false
+    end
+
+    local queued = enqueueCarWrite(vehicleHash)
+    flushInProgress = #pendingOps > 0
+    lastVehicleLoadExportAt[vehicleHash] = now
+    return queued or queuedCarOps[vehicleHash] == true
 end
 
 --- Sync the in-memory cache with the authoritative registry before exporting
@@ -637,7 +669,6 @@ local function requestDatabaseFlush(full, reason)
             enqueueCarWrite(vehicleHash)
         end
     end
-    dirtyCars = {}
 
     if full or indexDirty then
         enqueueIndexWrite()
@@ -664,11 +695,15 @@ local function processOnePendingOp()
     if op.type == "index" then
         writeJsonFile(getIndexFilename(), buildIndex())
     elseif op.type == "car" then
+        queuedCarOps[op.vehicleHash] = nil
         local entry = database[op.vehicleHash]
         if entry then
-            writeJsonFile(getCarFilename(op.vehicleHash), entry)
+            if writeJsonFile(getCarFilename(op.vehicleHash), entry) then
+                dirtyCars[op.vehicleHash] = nil
+            end
         end
     elseif op.type == "delete" then
+        lastVehicleLoadExportAt[op.vehicleHash] = nil
         writeJsonFile(getDeletedFilename(op.vehicleHash), {
             version = EXPORT_VERSION,
             vehicleHash = op.vehicleHash,
@@ -752,15 +787,26 @@ function VehicleClaim.updateCarDatabase(vehicle)
         return
     end
 
-    -- Build the vehicle entry
-    local scriptName = "Unknown"
+    local ownerSteamID = claimData[VehicleClaim.OWNER_KEY] or ""
+    local steamId = tonumber(ownerSteamID) and string.format("%.0f", tonumber(ownerSteamID)) or tostring(ownerSteamID)
+    local x = vehicle:getX()
+    local y = vehicle:getY()
+    local previous = database[vehicleHash]
+    local ownerChanged = not previous or previous.ownerSteamID ~= steamId
+    local positionChanged = hasMaterialPositionChange(previous, x, y)
+    local needsFirstInventorySnapshot = not previous or previous.hasInventorySnapshot ~= true
+
+    if not ownerChanged and not positionChanged and not needsFirstInventorySnapshot then
+        VehicleClaim.log("[Database] Skipping unchanged vehicle entry: " .. vehicleHash)
+        return
+    end
+
+    -- Build the full vehicle entry only when the cheap checks show work is needed.
+    local scriptName = previous and previous.scriptName or "Unknown"
     local script = vehicle:getScript()
     if script then
         scriptName = script:getScriptObjectFullType() or "Unknown"
     end
-
-    local ownerSteamID = claimData[VehicleClaim.OWNER_KEY] or ""
-    local steamId = tonumber(ownerSteamID) and string.format("%.0f", tonumber(ownerSteamID)) or tostring(ownerSteamID)
 
     local entry = {
         vehicleHash = vehicleHash,
@@ -768,18 +814,24 @@ function VehicleClaim.updateCarDatabase(vehicle)
         ownerName = claimData[VehicleClaim.OWNER_NAME_KEY] or "",
         vehicleName = VehicleClaim.getVehicleName(vehicle) or "Unknown Vehicle",
         scriptName = scriptName,
-        x = vehicle:getX(),
-        y = vehicle:getY(),
+        x = x,
+        y = y,
         lastUpdated = string.format("%.0f", getTimestampMs()),
+        hasInventorySnapshot = true,
         items = buildItemInventory(vehicle)
     }
 
-    -- Insert or replace the entry in memory. Disk export happens in throttled flushes.
+    -- Insert or replace the entry in memory. Disk export happens immediately
+    -- at most once per vehicle per cooldown, with the 30-minute flush as fallback.
     database[vehicleHash] = entry
     dirtyCars[vehicleHash] = true
     indexDirty = true
 
-    VehicleClaim.log("[Database] Updated vehicle entry: " .. vehicleHash .. " (" .. scriptName .. ")")
+    if queueVehicleLoadExport(vehicleHash) then
+        VehicleClaim.log("[Database] Updated vehicle entry and queued export: " .. vehicleHash .. " (" .. scriptName .. ")")
+    else
+        VehicleClaim.log("[Database] Updated vehicle entry in memory: " .. vehicleHash .. " (" .. scriptName .. ")")
+    end
 end
 
 --- Remove a vehicle entry from the car database

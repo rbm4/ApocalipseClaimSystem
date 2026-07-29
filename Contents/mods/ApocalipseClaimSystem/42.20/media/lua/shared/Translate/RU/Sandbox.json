@@ -1,0 +1,7 @@
+{
+    "Sandbox_VehicleClaimSystem": "Система владения транспортом",
+    "Sandbox_VehicleClaimSystem_MaxClaimsPerPlayer": "Макс. машин на игрока",
+    "Sandbox_VehicleClaimSystem_MaxClaimsPerPlayer_tooltip": "Максимальное число машин на одного игрока. Убавьте, чтобы предотвратить накопление машин, или прибавьте, чтобы разрешить больше персонального транспорта.",
+    "Sandbox_VehicleClaimSystem_AbandonedDaysThreshold": "Дней до того как машина будет считаться брошенной",
+    "Sandbox_VehicleClaimSystem_AbandonedDaysThreshold_tooltip": "Число дней (реальных) неактивности, прежде чем другие игроки смогут занять машину. 0 - отключить. По улочанию: 7 дней"
+}

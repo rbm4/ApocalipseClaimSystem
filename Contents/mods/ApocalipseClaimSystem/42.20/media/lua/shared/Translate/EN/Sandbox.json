@@ -1,0 +1,7 @@
+{
+    "Sandbox_VehicleClaimSystem": "Vehicle Claim System",
+    "Sandbox_VehicleClaimSystem_MaxClaimsPerPlayer": "Max Vehicles Per Player",
+    "Sandbox_VehicleClaimSystem_MaxClaimsPerPlayer_tooltip": "Maximum number of vehicles a single player can claim. Set lower to prevent hoarding, higher to allow more personal vehicles.",
+    "Sandbox_VehicleClaimSystem_AbandonedDaysThreshold": "Abandoned Vehicle Days",
+    "Sandbox_VehicleClaimSystem_AbandonedDaysThreshold_tooltip": "Number of real-world days (24 hours) without activity before other players can contest the claim. Set to 0 to disable (for testing), or higher to protect claims longer. Default: 7 days."
+}

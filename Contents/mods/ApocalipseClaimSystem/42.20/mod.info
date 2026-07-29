@@ -1,0 +1,6 @@
+name=Vehicle Claim System
+id=VehicleClaimSystem
+description=Server-authoritative vehicle ownership system. Claim vehicles, manage player access, and protect your rides from unauthorized use. Fully multiplayer-safe with proper client-server architecture.
+poster=poster.png
+url=
+modversion=0.0.1

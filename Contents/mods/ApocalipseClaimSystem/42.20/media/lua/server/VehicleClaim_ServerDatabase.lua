@@ -1,19 +1,19 @@
 --[[
     VehicleClaim_ServerDatabase.lua
-    Server-side vehicle database persistence module
-    
-    Maintains a JSON file on the server filesystem that acts as a car database.
-    Each claimed vehicle is stored keyed by its vehicleHash, including:
-      - Owner info (steamID, name)
-      - Vehicle info (script name, display name, coordinates)
-      - Full item inventory snapshot (fullType, count, container)
-    
-    The file is read once on load and written back on a timer (~60s batching)
-    and on server shutdown so no data is lost.
-    
-    The external backend reads this file to sync vehicle data into an
-    external database for management outside the game.
-]] require "shared/VehicleClaim_Shared"
+    Server-side vehicle database export module
+
+    GlobalModData is the source of truth for which cars are claimed.
+    This module maintains a throttled filesystem projection for external
+    services:
+      - VehicleClaimSystemDatabase/index.json lists currently claimed cars
+      - VehicleClaimSystemDatabase/cars/<vehicleHash>.json stores snapshots
+      - VehicleClaimSystemDatabase/deleted/<vehicleHash>.json stores tombstones
+
+    Vehicle item contents are captured only when the vehicle is loaded, using
+    the same pattern as the older monolithic JSON database.
+]]
+
+require "shared/VehicleClaim_Shared"
 require "shared/VehicleClaim_Config"
 
 -----------------------------------------------------------
@@ -337,33 +337,68 @@ local function parseJson(jsonStr)
 end
 
 -----------------------------------------------------------
--- In-Memory Database & File I/O
+-- In-Memory Database & Throttled File I/O
 -----------------------------------------------------------
 
-local database = {} -- In-memory cache: { [vehicleHash] = vehicleEntry }
-local isDirty = false -- Flag: database has unsaved changes
-local isLoaded = false -- Flag: database has been loaded from disk
+local EXPORT_VERSION = 2
+local FLUSH_INTERVAL_MS = 30 * 60 * 1000
+local OPS_PER_TICK = 1
 
---- Get the database filename from config
+local database = {} -- In-memory cache: { [vehicleHash] = vehicleEntry }
+local isLoaded = false
+local indexDirty = false
+local dirtyCars = {}
+local deletedCars = {}
+local pendingOps = {}
+local nextFlushAtMs = 0
+local flushInProgress = false
+
+--- Get the legacy database filename from config
 --- @return string
-local function getDatabaseFilename()
+local function getLegacyDatabaseFilename()
     if VehicleClaim.Sync and VehicleClaim.Sync.filename then
         return VehicleClaim.Sync.filename
     end
     return "VehicleClaimSystemDatabase.json"
 end
 
---- Load the database from the JSON file on disk
---- Called once on module initialization
---- @return table The loaded database (or empty table if file doesn't exist/is invalid)
-local function loadDatabase()
-    local filename = getDatabaseFilename()
-    VehicleClaim.log("[Database] Loading database from: " .. filename)
+--- Get the export directory from the configured legacy filename
+--- @return string
+local function getDatabaseDirectory()
+    local filename = getLegacyDatabaseFilename()
+    local dir = filename:gsub("%.json$", "")
+    if dir == "" then
+        return "VehicleClaimSystemDatabase"
+    end
+    return dir
+end
 
+--- Sanitize a vehicle hash for use as a relative filename
+--- @param vehicleHash string
+--- @return string
+local function getSafeVehicleFilename(vehicleHash)
+    return tostring(vehicleHash):gsub("[^%w%._%-]", "_")
+end
+
+local function getIndexFilename()
+    return getDatabaseDirectory() .. "/index.json"
+end
+
+local function getCarFilename(vehicleHash)
+    return getDatabaseDirectory() .. "/cars/" .. getSafeVehicleFilename(vehicleHash) .. ".json"
+end
+
+local function getDeletedFilename(vehicleHash)
+    return getDatabaseDirectory() .. "/deleted/" .. getSafeVehicleFilename(vehicleHash) .. ".json"
+end
+
+--- Read a JSON file from the Lua cache directory
+--- @param filename string
+--- @return table|nil
+local function readJsonFile(filename)
     local reader = getFileReader(filename, false)
     if not reader then
-        VehicleClaim.log("[Database] No existing database file found, starting fresh")
-        return {}
+        return nil
     end
 
     local lines = {}
@@ -376,50 +411,278 @@ local function loadDatabase()
 
     local jsonStr = table.concat(lines, "\n")
     if jsonStr == "" then
-        VehicleClaim.log("[Database] Database file is empty, starting fresh")
-        return {}
+        return nil
     end
 
-    local parsed = parseJson(jsonStr)
-    if parsed and type(parsed) == "table" then
-        local count = 0
-        for _ in pairs(parsed) do
-            count = count + 1
+    return parseJson(jsonStr)
+end
+
+--- Write a JSON file to the Lua cache directory
+--- @param filename string
+--- @param data table
+--- @return boolean
+local function writeJsonFile(filename, data)
+    local writer = getFileWriter(filename, true, false)
+    if not writer then
+        VehicleClaim.log("[Database] ERROR: Could not open file for writing: " .. filename)
+        return false
+    end
+
+    writer:write(serializeToJson(data))
+    writer:close()
+    return true
+end
+
+--- Read the global claim registry without changing its shape
+--- @return table
+local function getGlobalRegistry()
+    local globalModData = ModData.getOrCreate(VehicleClaim.GLOBAL_REGISTRY_KEY)
+    if not globalModData.claims then
+        globalModData.claims = {}
+    end
+    return globalModData.claims
+end
+
+local function countEntries(t)
+    local count = 0
+    for _ in pairs(t) do
+        count = count + 1
+    end
+    return count
+end
+
+--- Convert the in-memory database to a compact index for external readers
+--- @return table
+local function buildIndex()
+    local cars = {}
+    local count = 0
+
+    for vehicleHash, entry in pairs(database) do
+        count = count + 1
+        cars[vehicleHash] = {
+            vehicleHash = vehicleHash,
+            ownerSteamID = entry.ownerSteamID or "",
+            ownerName = entry.ownerName or "",
+            vehicleName = entry.vehicleName or "Unknown Vehicle",
+            scriptName = entry.scriptName or "Unknown",
+            x = entry.x or 0,
+            y = entry.y or 0,
+            lastUpdated = entry.lastUpdated or "",
+            path = getCarFilename(vehicleHash)
+        }
+    end
+
+    return {
+        version = EXPORT_VERSION,
+        generatedAt = string.format("%.0f", getTimestampMs()),
+        count = count,
+        cars = cars
+    }
+end
+
+--- Build a basic entry from the authoritative registry, preserving old snapshot fields
+--- @param vehicleHash string
+--- @param claimData table
+--- @param previous table|nil
+--- @return table
+local function buildEntryFromRegistry(vehicleHash, claimData, previous)
+    previous = previous or {}
+
+    return {
+        vehicleHash = vehicleHash,
+        ownerSteamID = tostring(claimData.ownerSteamID or claimData[VehicleClaim.OWNER_KEY] or previous.ownerSteamID or ""),
+        ownerName = claimData.ownerName or claimData[VehicleClaim.OWNER_NAME_KEY] or previous.ownerName or "",
+        vehicleName = claimData.vehicleName or claimData[VehicleClaim.VEHICLE_NAME_KEY] or previous.vehicleName or "Unknown Vehicle",
+        scriptName = previous.scriptName or "Unknown",
+        x = claimData.x or previous.x or 0,
+        y = claimData.y or previous.y or 0,
+        lastUpdated = previous.lastUpdated or string.format("%.0f", getTimestampMs()),
+        items = previous.items or {}
+    }
+end
+
+--- Load existing snapshot data from the indexed export, if present
+--- @return table
+local function loadIndexedSnapshots()
+    local snapshots = {}
+    local index = readJsonFile(getIndexFilename())
+    if not index or type(index.cars) ~= "table" then
+        return snapshots
+    end
+
+    for _, car in pairs(index.cars) do
+        if car and car.vehicleHash and car.path then
+            local entry = readJsonFile(car.path)
+            if entry and type(entry) == "table" then
+                snapshots[car.vehicleHash] = entry
+            end
         end
-        VehicleClaim.log("[Database] Loaded " .. count .. " vehicles from database")
+    end
+
+    return snapshots
+end
+
+--- Load legacy monolithic JSON snapshots for one-time migration
+--- @return table
+local function loadLegacySnapshots()
+    local parsed = readJsonFile(getLegacyDatabaseFilename())
+    if parsed and type(parsed) == "table" then
         return parsed
-    else
-        VehicleClaim.log("[Database] WARNING: Could not parse database file, starting fresh")
-        return {}
+    end
+    return {}
+end
+
+--- Load the in-memory database from GlobalModData, preserving old item snapshots
+--- @return table
+local function loadDatabase()
+    VehicleClaim.log("[Database] Loading export database from GlobalModData registry")
+
+    local registry = getGlobalRegistry()
+    local indexedSnapshots = loadIndexedSnapshots()
+    local legacySnapshots = loadLegacySnapshots()
+    local loaded = {}
+
+    for vehicleHash, claimData in pairs(registry) do
+        local previous = indexedSnapshots[vehicleHash] or legacySnapshots[vehicleHash]
+        loaded[vehicleHash] = buildEntryFromRegistry(vehicleHash, claimData or {}, previous)
+        dirtyCars[vehicleHash] = true
+    end
+
+    indexDirty = true
+    VehicleClaim.log("[Database] Prepared " .. countEntries(loaded) .. " claimed vehicles for indexed export")
+    return loaded
+end
+
+local function ensureDatabaseLoaded()
+    if not isLoaded then
+        database = loadDatabase()
+        isLoaded = true
     end
 end
 
---- Save the entire database to the JSON file on disk
---- Overwrites the existing file with the full serialized database
-local function saveDatabase()
-    if not isDirty then
+local function enqueueOp(op)
+    table.insert(pendingOps, op)
+end
+
+local function enqueueIndexWrite()
+    enqueueOp({
+        type = "index"
+    })
+end
+
+local function enqueueCarWrite(vehicleHash)
+    enqueueOp({
+        type = "car",
+        vehicleHash = vehicleHash
+    })
+end
+
+local function enqueueDeleteWrite(vehicleHash)
+    enqueueOp({
+        type = "delete",
+        vehicleHash = vehicleHash
+    })
+end
+
+--- Sync the in-memory cache with the authoritative registry before exporting
+local function mirrorRegistryIntoDatabase()
+    local registry = getGlobalRegistry()
+
+    for vehicleHash, _ in pairs(database) do
+        if not registry[vehicleHash] then
+            database[vehicleHash] = nil
+            deletedCars[vehicleHash] = true
+            indexDirty = true
+        end
+    end
+
+    for vehicleHash, claimData in pairs(registry) do
+        if not database[vehicleHash] then
+            database[vehicleHash] = buildEntryFromRegistry(vehicleHash, claimData or {}, nil)
+            dirtyCars[vehicleHash] = true
+            indexDirty = true
+        else
+            local entry = database[vehicleHash]
+            local beforeOwner = entry.ownerSteamID
+            entry.ownerSteamID = tostring(claimData.ownerSteamID or claimData[VehicleClaim.OWNER_KEY] or entry.ownerSteamID or "")
+            entry.ownerName = claimData.ownerName or claimData[VehicleClaim.OWNER_NAME_KEY] or entry.ownerName or ""
+            entry.vehicleName = claimData.vehicleName or claimData[VehicleClaim.VEHICLE_NAME_KEY] or entry.vehicleName or "Unknown Vehicle"
+            entry.x = claimData.x or entry.x or 0
+            entry.y = claimData.y or entry.y or 0
+            if beforeOwner ~= entry.ownerSteamID then
+                dirtyCars[vehicleHash] = true
+            end
+        end
+    end
+end
+
+--- Build a throttled flush queue from the current memory snapshot
+--- @param full boolean
+--- @param reason string
+local function requestDatabaseFlush(full, reason)
+    if not isServer() then
         return
     end
 
-    local filename = getDatabaseFilename()
-    local jsonStr = serializeToJson(database)
+    ensureDatabaseLoaded()
+    mirrorRegistryIntoDatabase()
 
-    local writer = getFileWriter(filename, true, false) -- createIfNull=true, append=false (overwrite)
-    if not writer then
-        VehicleClaim.log("[Database] ERROR: Could not open file for writing: " .. filename)
-        return
+    for vehicleHash, _ in pairs(deletedCars) do
+        enqueueDeleteWrite(vehicleHash)
+    end
+    deletedCars = {}
+
+    for vehicleHash, _ in pairs(database) do
+        if full or dirtyCars[vehicleHash] then
+            enqueueCarWrite(vehicleHash)
+        end
+    end
+    dirtyCars = {}
+
+    if full or indexDirty then
+        enqueueIndexWrite()
+        indexDirty = false
     end
 
-    writer:write(jsonStr)
-    writer:close()
+    flushInProgress = #pendingOps > 0
+    nextFlushAtMs = getTimestampMs() + FLUSH_INTERVAL_MS
 
-    isDirty = false
-
-    local count = 0
-    for _ in pairs(database) do
-        count = count + 1
+    if flushInProgress then
+        VehicleClaim.log("[Database] Queued " .. tostring(#pendingOps) .. " export operations (" .. tostring(reason) .. ")")
     end
-    VehicleClaim.log("[Database] Saved " .. count .. " vehicles to database file")
+end
+
+--- Execute one queued filesystem operation
+--- @return boolean true if an operation was processed
+local function processOnePendingOp()
+    local op = table.remove(pendingOps, 1)
+    if not op then
+        flushInProgress = false
+        return false
+    end
+
+    if op.type == "index" then
+        writeJsonFile(getIndexFilename(), buildIndex())
+    elseif op.type == "car" then
+        local entry = database[op.vehicleHash]
+        if entry then
+            writeJsonFile(getCarFilename(op.vehicleHash), entry)
+        end
+    elseif op.type == "delete" then
+        writeJsonFile(getDeletedFilename(op.vehicleHash), {
+            version = EXPORT_VERSION,
+            vehicleHash = op.vehicleHash,
+            deletedAt = string.format("%.0f", getTimestampMs())
+        })
+    end
+
+    flushInProgress = #pendingOps > 0
+    return true
+end
+
+local function drainPendingOps()
+    while processOnePendingOp() do
+    end
 end
 
 -----------------------------------------------------------
@@ -474,11 +737,7 @@ function VehicleClaim.updateCarDatabase(vehicle)
         return
     end
 
-    -- Ensure database is loaded
-    if not isLoaded then
-        database = loadDatabase()
-        isLoaded = true
-    end
+    ensureDatabaseLoaded()
 
     local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
     if not vehicleHash then
@@ -500,7 +759,8 @@ function VehicleClaim.updateCarDatabase(vehicle)
         scriptName = script:getScriptObjectFullType() or "Unknown"
     end
 
-    local steamId = string.format("%.0f", tonumber(claimData[VehicleClaim.OWNER_KEY])) or 0
+    local ownerSteamID = claimData[VehicleClaim.OWNER_KEY] or ""
+    local steamId = tonumber(ownerSteamID) and string.format("%.0f", tonumber(ownerSteamID)) or tostring(ownerSteamID)
 
     local entry = {
         vehicleHash = vehicleHash,
@@ -514,9 +774,10 @@ function VehicleClaim.updateCarDatabase(vehicle)
         items = buildItemInventory(vehicle)
     }
 
-    -- Insert or replace the entry in the database
+    -- Insert or replace the entry in memory. Disk export happens in throttled flushes.
     database[vehicleHash] = entry
-    isDirty = true
+    dirtyCars[vehicleHash] = true
+    indexDirty = true
 
     VehicleClaim.log("[Database] Updated vehicle entry: " .. vehicleHash .. " (" .. scriptName .. ")")
 end
@@ -532,18 +793,17 @@ function VehicleClaim.removeFromCarDatabase(vehicleHash)
         return
     end
 
-    -- Ensure database is loaded
-    if not isLoaded then
-        database = loadDatabase()
-        isLoaded = true
-    end
+    ensureDatabaseLoaded()
 
     if database[vehicleHash] then
         database[vehicleHash] = nil
-        isDirty = true
+        deletedCars[vehicleHash] = true
+        indexDirty = true
         VehicleClaim.log("[Database] Removed vehicle from database: " .. vehicleHash)
     else
-        VehicleClaim.log("[Database] Vehicle not found in database for removal: " .. vehicleHash)
+        deletedCars[vehicleHash] = true
+        indexDirty = true
+        VehicleClaim.log("[Database] Vehicle not found in database for removal, queued tombstone: " .. vehicleHash)
     end
 end
 
@@ -554,8 +814,15 @@ function VehicleClaim.clearCarDatabase()
         return
     end
 
+    ensureDatabaseLoaded()
+
+    for vehicleHash, _ in pairs(database) do
+        deletedCars[vehicleHash] = true
+    end
+
     database = {}
-    isDirty = true
+    dirtyCars = {}
+    indexDirty = true
     VehicleClaim.log("[Database] Entire car database cleared")
 end
 
@@ -563,20 +830,38 @@ end
 -- Periodic Flush & Server Shutdown Hook
 -----------------------------------------------------------
 
---- Flush pending changes to disk (called periodically by timer)
+--- Queue pending changes to disk (called periodically by timer)
 local function onPeriodicFlush()
     if not isServer() then
         return
     end
 
-    -- Ensure database is loaded on first tick
-    if not isLoaded then
-        database = loadDatabase()
-        isLoaded = true
+    if getTimestampMs() < nextFlushAtMs then
+        return
     end
 
-    if isDirty then
-        saveDatabase()
+    requestDatabaseFlush(false, "periodic")
+end
+
+--- Spread disk writes over frames
+local function onTick()
+    if not isServer() then
+        return
+    end
+
+    if not isLoaded then
+        ensureDatabaseLoaded()
+        requestDatabaseFlush(true, "startup")
+    end
+
+    if not flushInProgress then
+        return
+    end
+
+    for _ = 1, OPS_PER_TICK do
+        if not processOnePendingOp() then
+            break
+        end
     end
 end
 
@@ -587,9 +872,8 @@ local function onServerShutdown()
     end
 
     VehicleClaim.log("[Database] Server shutting down - flushing database...")
-    if isDirty then
-        saveDatabase()
-    end
+    requestDatabaseFlush(false, "shutdown")
+    drainPendingOps()
     VehicleClaim.log("[Database] Shutdown flush complete")
 end
 
@@ -597,8 +881,9 @@ end
 -- Event Registration
 -----------------------------------------------------------
 
--- Periodic flush every ~60 seconds (in-game minute)
-Events.OnServerStarted.add(Events.EveryHour.Add(onPeriodicFlush))
+-- Periodic queue check. Actual file writes are spread by OnTick.
+Events.EveryOneMinute.Add(onPeriodicFlush)
+Events.OnTick.Add(onTick)
 
 -- Flush on server shutdown / game exit to avoid data loss
 if Events.OnServerShutdown then

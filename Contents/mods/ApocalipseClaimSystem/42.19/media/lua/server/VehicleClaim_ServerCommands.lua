@@ -12,6 +12,53 @@ local VehicleClaimServer = {}
 -- Vehicle Lookup
 -----------------------------------------------------------
 
+local vehicleLookupCache = {
+    byHash = {},
+    vehicles = {},
+    lastRefreshMs = 0
+}
+
+local VEHICLE_CACHE_MAX_AGE_MS = 60 * 1000
+
+local function nowMs()
+    if type(getTimestampMs) == "function" then
+        return getTimestampMs()
+    end
+    return 0
+end
+
+local function cacheVehicle(vehicle)
+    if not vehicle then return end
+    local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
+    if vehicleHash then vehicleLookupCache.byHash[vehicleHash] = vehicle end
+end
+
+local function refreshVehicleLookupCache()
+    vehicleLookupCache.byHash = {}
+    vehicleLookupCache.vehicles = {}
+
+    local vehicles = getCell():getVehicles()
+    if vehicles then
+        local iterator = vehicles:iterator()
+        while iterator:hasNext() do
+            local vehicle = iterator:next()
+            if vehicle then
+                vehicleLookupCache.vehicles[#vehicleLookupCache.vehicles + 1] = vehicle
+                cacheVehicle(vehicle)
+            end
+        end
+    end
+
+    vehicleLookupCache.lastRefreshMs = nowMs()
+end
+
+local function refreshVehicleLookupCacheIfStale()
+    local lastRefreshMs = tonumber(vehicleLookupCache.lastRefreshMs) or 0
+    if lastRefreshMs <= 0 or nowMs() - lastRefreshMs >= VEHICLE_CACHE_MAX_AGE_MS then
+        refreshVehicleLookupCache()
+    end
+end
+
 --- Find a vehicle by hash on the server
 --- @param vehicleHash string Vehicle hash from ModData
 --- @return IsoVehicle|nil
@@ -20,23 +67,62 @@ local function findVehicleByHash(vehicleHash)
         return nil
     end
 
-    local vehicles = getCell():getVehicles()
-    if not vehicles then
-        return nil
+    refreshVehicleLookupCacheIfStale()
+
+    local cached = vehicleLookupCache.byHash[vehicleHash]
+    if cached and VehicleClaim.getVehicleHash(cached) == vehicleHash then
+        return cached
     end
 
-    local iterator = vehicles:iterator()
-    while iterator:hasNext() do
-        local vehicle = iterator:next()
+    refreshVehicleLookupCache()
+    cached = vehicleLookupCache.byHash[vehicleHash]
+    if cached and VehicleClaim.getVehicleHash(cached) == vehicleHash then
+        return cached
+    end
+
+    return nil
+end
+
+local function findClosestVehicleAt(targetX, targetY, targetZ)
+    refreshVehicleLookupCacheIfStale()
+
+    local bestVehicle = nil
+    local bestDist = 2.0
+
+    for _, vehicle in ipairs(vehicleLookupCache.vehicles) do
         if vehicle then
-            local hash = VehicleClaim.getVehicleHash(vehicle)
-            if hash == vehicleHash then
-                return vehicle
+            local z = tonumber(vehicle:getZ()) or 0
+            if targetZ == nil or math.abs(z - targetZ) < 0.5 then
+                local dx = vehicle:getX() - targetX
+                local dy = vehicle:getY() - targetY
+                local dist = math.sqrt(dx * dx + dy * dy)
+                if dist < bestDist then
+                    bestDist = dist
+                    bestVehicle = vehicle
+                end
             end
         end
     end
 
-    return nil
+    if bestVehicle then return bestVehicle end
+
+    refreshVehicleLookupCache()
+    for _, vehicle in ipairs(vehicleLookupCache.vehicles) do
+        if vehicle then
+            local z = tonumber(vehicle:getZ()) or 0
+            if targetZ == nil or math.abs(z - targetZ) < 0.5 then
+                local dx = vehicle:getX() - targetX
+                local dy = vehicle:getY() - targetY
+                local dist = math.sqrt(dx * dx + dy * dy)
+                if dist < bestDist then
+                    bestDist = dist
+                    bestVehicle = vehicle
+                end
+            end
+        end
+    end
+
+    return bestVehicle
 end
 
 --- Find player by Steam ID on the server
@@ -103,7 +189,24 @@ end
 -- Vehicle ModData Broadcast (replaces vehicle:transmitModData)
 -----------------------------------------------------------
 
---- Broadcast vehicle modData changes to all online players via sendServerCommand
+local function isPlayerInVehicleSyncRange(player, vehicle)
+    if not player or not vehicle then
+        return false
+    end
+
+    local dz = math.abs((tonumber(player:getZ()) or 0) - (tonumber(vehicle:getZ()) or 0))
+    if dz > 1 then
+        return false
+    end
+
+    local dx = player:getX() - vehicle:getX()
+    local dy = player:getY() - vehicle:getY()
+    local syncDistance = VehicleClaim.SYNC_DISTANCE or 100.0
+
+    return (dx * dx + dy * dy) <= (syncDistance * syncDistance)
+end
+
+--- Broadcast vehicle modData changes to nearby online players via sendServerCommand
 --- Each client will find the vehicle locally and update its modData
 --- @param vehicle IsoVehicle
 --- @param vehicleHash string
@@ -131,7 +234,7 @@ local function broadcastVehicleModData(vehicle, vehicleHash)
     if players then
         for i = 0, players:size() - 1 do
             local player = players:get(i)
-            if player then
+            if isPlayerInVehicleSyncRange(player, vehicle) then
                 sendServerCommand(player, VehicleClaim.COMMAND_MODULE,
                     VehicleClaim.RESP_SYNC_VEHICLE_MODDATA, syncArgs)
             end
@@ -277,6 +380,7 @@ local function initializeClaimData(vehicle, ownerSteamID, ownerName)
         VehicleClaim.log("ERROR: Could not get/create vehicle hash")
         return nil, nil
     end
+    cacheVehicle(vehicle)
 
     -- Get vehicle name/model
     local vehicleName = VehicleClaim.getVehicleName(vehicle)
@@ -1043,28 +1147,7 @@ local function handleRequestVehicleHash(player, args)
     local targetY = args.vehicleY
     local targetZ = args.vehicleZ or 0
 
-    -- Find the closest vehicle at the given position
-    local vehicles = getCell():getVehicles()
-    if not vehicles then
-        return
-    end
-
-    local bestVehicle = nil
-    local bestDist = 2.0 -- Max distance tolerance for matching
-
-    local iterator = vehicles:iterator()
-    while iterator:hasNext() do
-        local vehicle = iterator:next()
-        if vehicle then
-            local dx = vehicle:getX() - targetX
-            local dy = vehicle:getY() - targetY
-            local dist = math.sqrt(dx * dx + dy * dy)
-            if dist < bestDist then
-                bestDist = dist
-                bestVehicle = vehicle
-            end
-        end
-    end
+    local bestVehicle = findClosestVehicleAt(targetX, targetY, targetZ)
 
     if not bestVehicle then
         VehicleClaim.log("RequestHash: No vehicle found at position " .. targetX .. ", " .. targetY)
@@ -1077,6 +1160,7 @@ local function handleRequestVehicleHash(player, args)
         VehicleClaim.log("RequestHash: Failed to generate hash")
         return
     end
+    cacheVehicle(bestVehicle)
 
     VehicleClaim.log("RequestHash: Generated hash " .. vehicleHash .. " for vehicle at " .. targetX .. ", " .. targetY)
 
@@ -1208,6 +1292,8 @@ function VehicleClaimServer.onVehicleCreated(vehicle)
         return
     end
 
+    cacheVehicle(vehicle)
+
     -- Perform sync check
     syncVehicleClaimOnLoad(vehicle)
 end
@@ -1298,11 +1384,73 @@ function VehicleClaimServer.onTimedActionValidate(action)
     end
 end
 
+--- Block unauthorized vehicle/trailer attachments sent through the vanilla vehicle command module.
+--- @param module string
+--- @param command string
+--- @param player IsoPlayer
+--- @param args table
+function VehicleClaimServer.onVehicleAttachTrailerCommand(module, command, player, args)
+    if module ~= "vehicle" or command ~= "attachTrailer" then
+        return
+    end
+
+    if not player or not args then
+        return
+    end
+
+    local vehicleA = getVehicleById(args.vehicleA)
+    local vehicleB = getVehicleById(args.vehicleB)
+    if not vehicleA or not vehicleB then
+        return
+    end
+
+    local steamID = VehicleClaim.getPlayerSteamID(player)
+    local deniedVehicle = nil
+
+    if not VehicleClaim.hasAccess(vehicleA, steamID) and not isAdmin(player) then
+        deniedVehicle = vehicleA
+    elseif not VehicleClaim.hasAccess(vehicleB, steamID) and not isAdmin(player) then
+        deniedVehicle = vehicleB
+    end
+
+    if not deniedVehicle then
+        updateLastSeen(vehicleA)
+        updateLastSeen(vehicleB)
+        return
+    end
+
+    local ownerName = VehicleClaim.getOwnerName(deniedVehicle) or "another player"
+    sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_ACCESS_DENIED, {
+        action = "attach",
+        ownerName = ownerName
+    })
+
+    VehicleClaim.log("Blocked " .. player:getUsername() .. " from attaching vehicle owned by " .. ownerName)
+
+    -- Vanilla also handles the same client command. Break now and once more next tick so
+    -- this guard works regardless of event listener order.
+    vehicleA:breakConstraint(true, false)
+
+    local removeInvalidTow
+    removeInvalidTow = function()
+        if vehicleA then
+            vehicleA:breakConstraint(true, false)
+        end
+        Events.OnTick.Remove(removeInvalidTow)
+    end
+    Events.OnTick.Add(removeInvalidTow)
+end
+
 -----------------------------------------------------------
 -- Event Registration
 -----------------------------------------------------------
 
 Events.OnClientCommand.Add(VehicleClaimServer.onClientCommand)
+Events.OnClientCommand.Add(VehicleClaimServer.onVehicleAttachTrailerCommand)
+
+if Events.OnServerStarted then
+    Events.OnServerStarted.Add(refreshVehicleLookupCache)
+end
 
 -- Vehicle creation/load hook - sync claim data when vehicles are loaded
 Events.OnSpawnVehicleStart.Add(VehicleClaimServer.onVehicleCreated)

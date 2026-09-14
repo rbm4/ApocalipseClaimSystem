@@ -24,6 +24,7 @@ VehicleClaim.VEHICLE_HASH_KEY = "vehicleHash" -- Unique persistent hash for this
 -- Proximity settings
 VehicleClaim.CLAIM_DISTANCE = 8.0 -- Max distance to claim/interact
 VehicleClaim.CLAIM_TIME_TICKS = 400 -- Timed action duration (~2 seconds)
+VehicleClaim.SYNC_DISTANCE = 100.0 -- Max distance to receive vehicle claim modData syncs
 
 -- Command types (client -> server)
 VehicleClaim.CMD_CLAIM = "claimVehicle"
@@ -155,10 +156,32 @@ function VehicleClaim.getOrCreateVehicleHash(vehicle)
         if VehicleClaim.broadcastVehicleModData then
             VehicleClaim.broadcastVehicleModData(vehicle, vehicleHash)
         end
-        vehicle:saveToVehicleTable()
+        VehicleClaim.trySaveVehicleToTable(vehicle)
     end
 
     return vehicleHash
+end
+
+--- Best-effort vehicle table save.
+--- B42 vehicle objects do not always expose saveToVehicleTable(), and calling a
+--- missing Java method through Kahlua logs a stack trace even inside pcall().
+--- @param vehicle IsoVehicle
+--- @return boolean success
+function VehicleClaim.trySaveVehicleToTable(vehicle)
+    if not vehicle or type(pcall) ~= "function" then
+        return false
+    end
+
+    local saveToVehicleTable = vehicle.saveToVehicleTable
+    if type(saveToVehicleTable) ~= "function" then
+        return false
+    end
+
+    local success = pcall(function()
+        vehicle:saveToVehicleTable()
+    end)
+
+    return success == true
 end
 
 --- Get vehicle hash without creating one

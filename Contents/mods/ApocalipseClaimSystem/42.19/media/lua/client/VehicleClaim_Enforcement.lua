@@ -647,67 +647,28 @@ end
 -- Tow/Trailer Blocking (Pre-Attach Check)
 -----------------------------------------------------------
 
---- Find nearby vehicles from the rear attachment point of the towing vehicle
---- @param vehicle BaseVehicle The towing vehicle
---- @param maxDistance number Maximum distance to search for trailers
---- @return table Array of nearby vehicles
-local function findNearbyVehicles(vehicle, maxDistance)
-    if not vehicle then return {} end
-    
-    local nearbyVehicles = {}
-    
-    -- Get vehicle position and direction
-    local vx, vy = vehicle:getX(), vehicle:getY()
-    local dir = vehicle:getDir()
-    
-    -- Get the direction vector (normalized) from the IsoDirections
-    local dirVector = dir:ToVector()
-    if not dirVector then 
-        print("[VehicleClaim] ERROR: Could not get direction vector")
-        return nearbyVehicles 
+local function denyVehicleAccess(playerObj, vehicle)
+    if playerObj and vehicle then
+        playerObj:Say(VehicleClaimEnforcement.getDenialMessage(vehicle))
     end
-    
-    -- Get vehicle dimensions from script to calculate rear offset
-    local script = vehicle:getScript()
-    local rearOffset = 2.5  -- Default offset for rear attachment point
-    
-    if script then
-        local extents = script:getExtents()
-        if extents then
-            -- Use half the vehicle length (Z axis) as the rear offset
-            rearOffset = extents:z() / 2
-            print("[VehicleClaim] Using vehicle extents for rear offset: " .. rearOffset)
+end
+
+local function hasTowAccess(playerObj, vehicleA, vehicleB, silent)
+    if not VehicleClaimEnforcement.hasAccess(playerObj, vehicleA) then
+        if not silent then
+            denyVehicleAccess(playerObj, vehicleA)
         end
+        return false
     end
-    
-    -- Calculate rear attachment point using direction vector
-    -- Direction vector points forward, so negate it to point backward
-    local rearX = vx - (dirVector:getX() * rearOffset)
-    local rearY = vy - (dirVector:getY() * rearOffset)
-    
-    print("[VehicleClaim] Vehicle at (" .. vx .. ", " .. vy .. "), rear point at (" .. rearX .. ", " .. rearY .. ")")
-    
-    local cell = getCell()
-    if not cell then return nearbyVehicles end
-    
-    local vehicles = cell:getVehicles()
-    if not vehicles then return nearbyVehicles end
-    
-    -- Find vehicles near the rear attachment point
-    local iterator = vehicles:iterator()
-    while iterator:hasNext() do
-        local nearbyVehicle = iterator:next()
-        if nearbyVehicle and nearbyVehicle ~= vehicle then
-            local nx, ny = nearbyVehicle:getX(), nearbyVehicle:getY()
-            local dist = math.sqrt((rearX - nx)^2 + (rearY - ny)^2)
-            
-            if dist <= maxDistance then
-                table.insert(nearbyVehicles, nearbyVehicle)
-            end
+
+    if not VehicleClaimEnforcement.hasAccess(playerObj, vehicleB) then
+        if not silent then
+            denyVehicleAccess(playerObj, vehicleB)
         end
+        return false
     end
-    
-    return nearbyVehicles
+
+    return true
 end
 
 local function hookTowTrailer()
@@ -716,36 +677,41 @@ local function hookTowTrailer()
     -- Hook attach trailer - PRE-ATTACH enforcement
     if ISVehicleMenu.onAttachTrailer then
         local originalAttach = ISVehicleMenu.onAttachTrailer
-        ISVehicleMenu.onAttachTrailer = function(playerObj, vehicleA, attachmentPoint, attachmentA, attachmentB)
-            -- Check if the towing vehicle (vehicleA) is accessible
-            if type(vehicleA) == "userdata" then
-                -- First, check if player has access to the towing vehicle
-                if not VehicleClaimEnforcement.hasAccess(playerObj, vehicleA) then
-                    playerObj:Say(VehicleClaimEnforcement.getDenialMessage(vehicleA))
-                    return
-                end
-                
-                -- Find all nearby vehicles that could potentially be trailers
-                -- Using a 6-tile radius from the rear attachment point
-                local nearbyVehicles = findNearbyVehicles(vehicleA, 8)
-                
-                -- Check if any nearby vehicle is claimed and player lacks access
-                for _, nearbyVehicle in ipairs(nearbyVehicles) do
-                    if not VehicleClaimEnforcement.hasAccess(playerObj, nearbyVehicle) then
-                        -- Found a claimed vehicle nearby that player can't access
-                        playerObj:Say(VehicleClaimEnforcement.getDenialMessage(nearbyVehicle))
-                        print("[VehicleClaim] Blocked trailer attachment - nearby vehicle is claimed")
-                        return
-                    end
-                end
+        ISVehicleMenu.onAttachTrailer = function(playerObj, vehicleA, attachmentA, attachmentB)
+            local vehicleB = nil
+            if vehicleA then
+                vehicleB = ISVehicleTrailerUtils.getTowableVehicleNear(vehicleA:getCurrentSquare(), vehicleA, attachmentA, attachmentB)
             end
-            
+
+            if not hasTowAccess(playerObj, vehicleA, vehicleB) then
+                VehicleClaim.log("Blocked trailer attachment from radial menu")
+                return
+            end
+
             -- All checks passed, allow the attachment
-            return originalAttach(playerObj, vehicleA, attachmentPoint, attachmentA, attachmentB)
+            return originalAttach(playerObj, vehicleA, attachmentA, attachmentB)
         end
         print("[VehicleClaim] Hooked ISVehicleMenu.onAttachTrailer (pre-attach enforcement)")
     end
-    
+
+    if ISAttachTrailerToVehicle then
+        local originalIsValid = ISAttachTrailerToVehicle.isValid
+        ISAttachTrailerToVehicle.isValid = function(self)
+            if not hasTowAccess(self.character, self.vehicleA, self.vehicleB, true) then
+                return false
+            end
+            return originalIsValid(self)
+        end
+
+        local originalAttachTrailer = ISAttachTrailerToVehicle.attachTrailer
+        ISAttachTrailerToVehicle.attachTrailer = function(self)
+            if not hasTowAccess(self.character, self.vehicleA, self.vehicleB) then
+                return
+            end
+            return originalAttachTrailer(self)
+        end
+        print("[VehicleClaim] Hooked ISAttachTrailerToVehicle (timed-action enforcement)")
+    end
 end
 
 -----------------------------------------------------------

@@ -128,7 +128,7 @@ function ISReleaseVehicleClaimAction:perform()
         steamID = steamID
     }
 
-    sendClientCommand(self.character, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_RELEASE, args)
+    sendClientCommand(self.character, VehicleClaim.COMMAND_MODULE, VehicleClaim.CMD_RELEASE_REMOTE, args)
 
     ISBaseTimedAction.perform(self)
 end

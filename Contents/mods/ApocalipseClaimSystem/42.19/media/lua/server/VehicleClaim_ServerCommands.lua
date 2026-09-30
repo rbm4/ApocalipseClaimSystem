@@ -18,6 +18,8 @@ local vehicleLookupCache = {
     lastRefreshMs = 0
 }
 
+local trustedVehicleHashesById = {}
+
 local VEHICLE_CACHE_MAX_AGE_MS = 60 * 1000
 
 local function nowMs()
@@ -30,7 +32,30 @@ end
 local function cacheVehicle(vehicle)
     if not vehicle then return end
     local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
-    if vehicleHash then vehicleLookupCache.byHash[vehicleHash] = vehicle end
+    local vehicleId = vehicle:getId()
+    local trusted = vehicleId and trustedVehicleHashesById[vehicleId]
+    if trusted and trusted.vehicle == vehicle then
+        vehicleHash = trusted.vehicleHash
+    elseif vehicleId and vehicleHash then
+        trustedVehicleHashesById[vehicleId] = { vehicle = vehicle, vehicleHash = vehicleHash }
+    end
+
+    if vehicleHash then
+        vehicleLookupCache.byHash[vehicleHash] = vehicle
+    end
+end
+
+local function vehicleMatchesHash(vehicle, vehicleHash)
+    if not vehicle or not vehicleHash then
+        return false
+    end
+
+    local trusted = trustedVehicleHashesById[vehicle:getId()]
+    if trusted and trusted.vehicle == vehicle then
+        return trusted.vehicleHash == vehicleHash
+    end
+
+    return VehicleClaim.getVehicleHash(vehicle) == vehicleHash
 end
 
 local function refreshVehicleLookupCache()
@@ -70,13 +95,13 @@ local function findVehicleByHash(vehicleHash)
     refreshVehicleLookupCacheIfStale()
 
     local cached = vehicleLookupCache.byHash[vehicleHash]
-    if cached and VehicleClaim.getVehicleHash(cached) == vehicleHash then
+    if cached and vehicleMatchesHash(cached, vehicleHash) then
         return cached
     end
 
     refreshVehicleLookupCache()
     cached = vehicleLookupCache.byHash[vehicleHash]
-    if cached and VehicleClaim.getVehicleHash(cached) == vehicleHash then
+    if cached and vehicleMatchesHash(cached, vehicleHash) then
         return cached
     end
 
@@ -278,9 +303,130 @@ local function addToGlobalRegistry(vehicleHash, ownerSteamID, ownerName, x, y, v
         y = y,
         vehicleName = vehicleName or "Unknown Vehicle",
         claimTime = VehicleClaim.getCurrentTimestamp(),
+        lastSeen = VehicleClaim.getCurrentTimestamp(),
         allowedPlayers = allowedPlayers or {}
     }
     ModData.transmit(VehicleClaim.GLOBAL_REGISTRY_KEY)
+end
+
+local function getRegistryClaimForVehicle(vehicle)
+    if not vehicle then
+        return nil, nil
+    end
+
+    local registry = getGlobalRegistry()
+    local vehicleId = vehicle:getId()
+    local trusted = vehicleId and trustedVehicleHashesById[vehicleId]
+    if trusted and trusted.vehicle == vehicle then
+        local entry = registry[trusted.vehicleHash]
+        return entry, trusted.vehicleHash
+    end
+
+    local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
+    local entry = vehicleHash and registry[vehicleHash]
+    if entry then
+        if vehicleId then
+            trustedVehicleHashesById[vehicleId] = { vehicle = vehicle, vehicleHash = vehicleHash }
+        end
+        return entry, vehicleHash
+    end
+
+    return nil, vehicleHash
+end
+
+local function buildClaimDataFromRegistry(entry, vehicleHash)
+    return {
+        [VehicleClaim.OWNER_KEY] = entry.ownerSteamID,
+        [VehicleClaim.OWNER_NAME_KEY] = entry.ownerName,
+        [VehicleClaim.VEHICLE_NAME_KEY] = entry.vehicleName or "Unknown Vehicle",
+        [VehicleClaim.ALLOWED_PLAYERS_KEY] = entry.allowedPlayers or {},
+        [VehicleClaim.CLAIM_TIME_KEY] = entry.claimTime or 0,
+        [VehicleClaim.LAST_SEEN_KEY] = entry.lastSeen or entry.claimTime or 0,
+        [VehicleClaim.VEHICLE_HASH_KEY] = vehicleHash
+    }
+end
+
+local function claimDataMatchesRegistry(claimData, entry, vehicleHash)
+    if type(claimData) ~= "table" then
+        return false
+    end
+
+    local expected = buildClaimDataFromRegistry(entry, vehicleHash)
+    for key, value in pairs(expected) do
+        if key ~= VehicleClaim.ALLOWED_PLAYERS_KEY and claimData[key] ~= value then
+            return false
+        end
+    end
+
+    local currentAllowed = claimData[VehicleClaim.ALLOWED_PLAYERS_KEY]
+    local expectedAllowed = expected[VehicleClaim.ALLOWED_PLAYERS_KEY]
+    if type(currentAllowed) ~= "table" then
+        return false
+    end
+    for steamID, playerName in pairs(expectedAllowed) do
+        if currentAllowed[steamID] ~= playerName then
+            return false
+        end
+    end
+    for steamID in pairs(currentAllowed) do
+        if expectedAllowed[steamID] == nil then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function syncVehicleClaimFromRegistry(vehicle)
+    local entry, vehicleHash = getRegistryClaimForVehicle(vehicle)
+    if not vehicle then
+        return nil, nil, false
+    end
+
+    local modData = vehicle:getModData()
+    if not entry then
+        local vehicleId = vehicle:getId()
+        local trusted = vehicleId and trustedVehicleHashesById[vehicleId]
+        local changed = false
+        if trusted and trusted.vehicle == vehicle and modData[VehicleClaim.VEHICLE_HASH_KEY] ~= trusted.vehicleHash then
+            modData[VehicleClaim.VEHICLE_HASH_KEY] = trusted.vehicleHash
+            vehicleHash = trusted.vehicleHash
+            changed = true
+        end
+        if modData[VehicleClaim.MODDATA_KEY] ~= nil then
+            modData[VehicleClaim.MODDATA_KEY] = nil
+            changed = true
+        end
+        if changed and vehicleHash then
+            broadcastVehicleModData(vehicle, vehicleHash)
+        end
+        return nil, vehicleHash, changed
+    end
+
+    vehicleHash = entry.vehicleHash or vehicleHash
+    local changed = modData[VehicleClaim.VEHICLE_HASH_KEY] ~= vehicleHash or
+        not claimDataMatchesRegistry(modData[VehicleClaim.MODDATA_KEY], entry, vehicleHash)
+    modData[VehicleClaim.VEHICLE_HASH_KEY] = vehicleHash
+    modData[VehicleClaim.MODDATA_KEY] = buildClaimDataFromRegistry(entry, vehicleHash)
+    if changed then
+        broadcastVehicleModData(vehicle, vehicleHash)
+    end
+
+    return entry, vehicleHash, changed
+end
+
+local function hasRegistryVehicleAccess(vehicle, steamID)
+    if not steamID then
+        return false
+    end
+
+    local entry = syncVehicleClaimFromRegistry(vehicle)
+    if not entry then
+        return true
+    end
+
+    local allowedPlayers = entry.allowedPlayers or {}
+    return entry.ownerSteamID == steamID or allowedPlayers[steamID] ~= nil
 end
 
 --- Remove a vehicle from the global registry
@@ -367,6 +513,8 @@ end
 -----------------------------------------------------------
 
 --- Initialize claim data on a vehicle (writes to both ModData and registry)
+--- Initialize registry claim data and project it to the vehicle ModData mirror
+    -- The registry is authoritative; ModData is synchronized for client display.
 --- @param vehicle IsoVehicle
 --- @param ownerSteamID string
 --- @param ownerName string
@@ -402,6 +550,7 @@ local function initializeClaimData(vehicle, ownerSteamID, ownerName)
 
     -- Also add to global registry (for tracking when vehicle is unloaded)
     addToGlobalRegistry(vehicleHash, ownerSteamID, ownerName, vehicle:getX(), vehicle:getY(), vehicleName)
+    syncVehicleClaimFromRegistry(vehicle)
 
     -- Return claimData and hash so caller can send response
     return claimData, vehicleHash
@@ -432,28 +581,18 @@ end
 --- Only updates if at least 5 minutes have passed since last update to avoid constant modData broadcast
 --- @param vehicle IsoVehicle
 local function updateLastSeen(vehicle)
-    local claimData = VehicleClaim.getClaimData(vehicle)
-    if claimData then
+    local registryEntry, vehicleHash = getRegistryClaimForVehicle(vehicle)
+    if registryEntry then
         local currentTime = VehicleClaim.getCurrentTimestamp()
-        local lastSeen = claimData[VehicleClaim.LAST_SEEN_KEY] or 0
+        local lastSeen = registryEntry.lastSeen or registryEntry.claimTime or 0
 
         -- Only update if at least 5 minutes have passed
         if (currentTime - lastSeen) >= 5 then
-            claimData[VehicleClaim.LAST_SEEN_KEY] = currentTime
-
-            -- Also update position and lastSeen in registry
-            local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
-            if vehicleHash then
-                updateRegistryPosition(vehicleHash, vehicle:getX(), vehicle:getY())
-                -- Update lastSeen in global registry so "My Vehicles" panel shows correct data
-                local registry = getGlobalRegistry()
-                local entry = registry[vehicleHash]
-                if entry then
-                    entry.lastSeen = currentTime
-                end
-            end
-
-            broadcastVehicleModData(vehicle, vehicleHash)
+            registryEntry.lastSeen = currentTime
+            registryEntry.x = vehicle:getX()
+            registryEntry.y = vehicle:getY()
+            ModData.transmit(VehicleClaim.GLOBAL_REGISTRY_KEY)
+            syncVehicleClaimFromRegistry(vehicle)
         end
     end
 end
@@ -543,18 +682,21 @@ local function handleClaimVehicle(player, args)
         return
     end
 
-    -- Check if already claimed by reading ModData
-    local existingClaimData = VehicleClaim.getClaimData(vehicle)
-    if existingClaimData and existingClaimData[VehicleClaim.OWNER_KEY] then
+    -- The server registry is authoritative; vehicle ModData is a client-facing mirror.
+    local existingClaim = getGlobalRegistry()[vehicleHash]
+    if existingClaim then
+        syncVehicleClaimFromRegistry(vehicle)
         -- Vehicle is already claimed
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
             reason = VehicleClaim.ERR_ALREADY_CLAIMED,
-            ownerName = existingClaimData[VehicleClaim.OWNER_NAME_KEY] or "Unknown"
+            ownerName = existingClaim.ownerName or "Unknown"
         })
         VehicleClaim.log("Claim rejected: Vehicle hash " .. vehicleHash .. " already claimed by " ..
-                             (existingClaimData[VehicleClaim.OWNER_NAME_KEY] or "Unknown"))
+                             (existingClaim.ownerName or "Unknown"))
         return
     end
+
+    syncVehicleClaimFromRegistry(vehicle)
 
     -- Check claim limit (use registry for accurate count)
     local currentClaims = countPlayerClaimsFromRegistry(steamID)
@@ -598,84 +740,27 @@ local function handleClaimVehicle(player, args)
 end
 
 --- Handle release claim request
---- @param player IsoPlayer
---- @param args table
+local handleReleaseClaimRemote
+
 local function handleReleaseClaim(player, args)
-    local vehicleHash = args.vehicleHash
-    local steamID = args.steamID
+    handleReleaseClaimRemote(player, args)
+end
 
-    if not vehicleHash or not steamID then
-        VehicleClaim.log("Release rejected: missing parameters")
-        return
-    end
-
-    local actualSteamID = VehicleClaim.getPlayerSteamID(player)
-    if actualSteamID ~= steamID then
-        VehicleClaim.log("Release rejected: steamID mismatch")
-        return
-    end
-
-    -- Find vehicle to check proximity (REQUIRED - must be near vehicle to unclaim)
+local function finishRegistryRelease(player, vehicleHash, contested)
     local vehicle = findVehicleByHash(vehicleHash)
-    if not vehicle then
-        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
-            reason = VehicleClaim.ERR_VEHICLE_NOT_LOADED
-        })
-        VehicleClaim.log("Release rejected: Vehicle not loaded (player must be nearby)")
-        return
+    if vehicle then
+        local modData = vehicle:getModData()
+        modData[VehicleClaim.MODDATA_KEY] = nil
+        broadcastVehicleModData(vehicle, vehicleHash)
     end
 
-    -- Check proximity (REQUIRED - ensures vehicle ModData can be cleared)
-    if not VehicleClaim.isWithinRange(player, vehicle) then
-        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
-            reason = VehicleClaim.ERR_TOO_FAR
-        })
-        VehicleClaim.log("Release rejected: Player too far from vehicle")
-        return
-    end
-
-    -- Read claim data from vehicle ModData (source of truth for ownership)
-    local claimData = VehicleClaim.getClaimData(vehicle)
-
-    if not claimData then
-        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
-            reason = VehicleClaim.ERR_VEHICLE_NOT_CLAIMED
-        })
-        VehicleClaim.log("Release rejected: Vehicle has no claim data")
-        return
-    end
-
-    -- Verify ownership from ModData (lenient - supports legacy data)
-    local ownerSteamID = claimData[VehicleClaim.OWNER_KEY]
-    if ownerSteamID ~= steamID and not isAdmin(player) then
-        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
-            reason = VehicleClaim.ERR_NOT_OWNER
-        })
-        VehicleClaim.log("Release rejected: Player is not the owner (from ModData)")
-        return
-    end
-
-    -- Clear ModData (vehicle is loaded and player is nearby)
-    local modData = vehicle:getModData()
-    modData[VehicleClaim.MODDATA_KEY] = nil
-    broadcastVehicleModData(vehicle, vehicleHash)
-    VehicleClaim.log("Cleared ModData for vehicle: " .. vehicleHash)
-
-    -- Remove from global registry if present (lenient - may not exist for legacy claims)
-    local registry = getGlobalRegistry()
-    if registry[vehicleHash] then
-        removeFromGlobalRegistry(vehicleHash)
-        VehicleClaim.log("Vehicle released from registry: Hash " .. vehicleHash .. " by " .. player:getUsername())
-    else
-        VehicleClaim.log("Vehicle released (legacy claim - no registry entry): Hash " .. vehicleHash .. " by " ..
-                             player:getUsername())
-    end
-
-    -- Remove from car database
+    removeFromGlobalRegistry(vehicleHash)
     VehicleClaim.removeFromCarDatabase(vehicleHash)
+    VehicleClaim.log("[Release] Vehicle " .. vehicleHash .. " released by " .. player:getUsername())
 
     sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_RELEASE_SUCCESS, {
-        vehicleHash = vehicleHash
+        vehicleHash = vehicleHash,
+        contested = contested == true
     })
 end
 
@@ -684,7 +769,7 @@ end
 --- The vehicle's modData will be synced when it's eventually loaded
 --- @param player IsoPlayer
 --- @param args table
-local function handleReleaseClaimRemote(player, args)
+handleReleaseClaimRemote = function(player, args)
     local vehicleHash = args.vehicleHash
     local steamID = args.steamID
 
@@ -712,7 +797,7 @@ local function handleReleaseClaimRemote(player, args)
     end
 
     -- Verify ownership from registry
-    if registryEntry.ownerSteamID ~= steamID and not isAdmin(player) then
+    if registryEntry.ownerSteamID ~= steamID then
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
             reason = VehicleClaim.ERR_NOT_OWNER
         })
@@ -720,28 +805,7 @@ local function handleReleaseClaimRemote(player, args)
         return
     end
 
-    -- Try to find vehicle if it's loaded and clear its modData immediately
-    local vehicle = findVehicleByHash(vehicleHash)
-    if vehicle then
-        local modData = vehicle:getModData()
-        modData[VehicleClaim.MODDATA_KEY] = nil
-        broadcastVehicleModData(vehicle, vehicleHash)
-        VehicleClaim.log("[Remote Release] Cleared ModData for loaded vehicle: " .. vehicleHash)
-    else
-        VehicleClaim.log("[Remote Release] Vehicle not loaded - ModData will sync when vehicle loads")
-    end
-
-    -- Remove from global registry (this is the key step for remote unclaim)
-    removeFromGlobalRegistry(vehicleHash)
-    VehicleClaim.log("[Remote Release] Vehicle released from registry: Hash " .. vehicleHash .. " by " ..
-                         player:getUsername())
-
-    -- Remove from car database
-    VehicleClaim.removeFromCarDatabase(vehicleHash)
-
-    sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_RELEASE_SUCCESS, {
-        vehicleHash = vehicleHash
-    })
+    finishRegistryRelease(player, vehicleHash, false)
 end
 
 --- Handle contest claim request (for abandoned vehicles)
@@ -763,38 +827,40 @@ local function handleContestClaim(player, args)
         return
     end
     
-    -- Find vehicle (REQUIRED - must be near vehicle to contest)
+    local registryEntry = getGlobalRegistry()[vehicleHash]
+    if not registryEntry then
+        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
+            reason = VehicleClaim.ERR_VEHICLE_NOT_CLAIMED
+        })
+        VehicleClaim.log("Contest claim rejected: Vehicle not in server registry")
+        return
+    end
+
     local vehicle = findVehicleByHash(vehicleHash)
-    if not vehicle then
+    local vehicleX = vehicle and vehicle:getX() or registryEntry.x
+    local vehicleY = vehicle and vehicle:getY() or registryEntry.y
+    if not vehicleX or not vehicleY then
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
             reason = VehicleClaim.ERR_VEHICLE_NOT_LOADED
         })
-        VehicleClaim.log("Contest claim rejected: Vehicle not loaded")
         return
     end
-    
-    -- Check proximity
-    if not VehicleClaim.isWithinRange(player, vehicle) then
+    local dx = player:getX() - vehicleX
+    local dy = player:getY() - vehicleY
+    if (dx * dx + dy * dy) > (VehicleClaim.CLAIM_DISTANCE * VehicleClaim.CLAIM_DISTANCE) then
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
             reason = VehicleClaim.ERR_TOO_FAR
         })
         VehicleClaim.log("Contest claim rejected: Player too far from vehicle")
         return
     end
-    
-    -- Read claim data
-    local claimData = VehicleClaim.getClaimData(vehicle)
-    if not claimData then
-        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
-            reason = VehicleClaim.ERR_VEHICLE_NOT_CLAIMED
-        })
-        VehicleClaim.log("Contest claim rejected: Vehicle not claimed")
-        return
+
+    if vehicle then
+        syncVehicleClaimFromRegistry(vehicle)
     end
     
     -- Verify player is NOT the owner (owners should use normal unclaim)
-    local ownerSteamID = claimData[VehicleClaim.OWNER_KEY]
-    if ownerSteamID == steamID then
+    if registryEntry.ownerSteamID == steamID then
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
             reason = "cannotContestOwnVehicle"
         })
@@ -802,9 +868,11 @@ local function handleContestClaim(player, args)
         return
     end
     
-    -- Check if vehicle is abandoned
-    local isAbandoned, daysSinceLastSeen = VehicleClaim.isVehicleAbandoned(vehicle)
-    if isAbandoned == false then
+    -- Check abandonment using server-owned registry timestamps, not vehicle ModData.
+    local lastSeen = registryEntry.lastSeen or registryEntry.claimTime or 0
+    local minutesSinceLastSeen = VehicleClaim.getCurrentTimestamp() - lastSeen
+    local daysSinceLastSeen = math.max(0, minutesSinceLastSeen / (24 * 60 * 16))
+    if daysSinceLastSeen < VehicleClaim.getAbandonedDaysThreshold() then
         local threshold = VehicleClaim.getAbandonedDaysThreshold()
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
             reason = "vehicleNotAbandoned",
@@ -816,27 +884,9 @@ local function handleContestClaim(player, args)
         return
     end
     
-    -- All validations passed - remove the claim
     VehicleClaim.log(string.format("[Contest Claim] Vehicle %s contested by %s (abandoned for %.1f days)", 
         vehicleHash, player:getUsername(), daysSinceLastSeen))
-    
-    -- Clear ModData
-    local modData = vehicle:getModData()
-    modData[VehicleClaim.MODDATA_KEY] = nil
-    broadcastVehicleModData(vehicle, vehicleHash)
-    
-    -- Remove from registry
-    removeFromGlobalRegistry(vehicleHash)
-
-    -- Remove from car database
-    VehicleClaim.removeFromCarDatabase(vehicleHash)
-    
-    VehicleClaim.log("[Contest Claim] Successfully removed abandoned claim: " .. vehicleHash .. " by " .. player:getUsername())
-    
-    sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_RELEASE_SUCCESS, {
-        vehicleHash = vehicleHash,
-        contested = true  -- Flag to show different message on client
-    })
+    finishRegistryRelease(player, vehicleHash, true)
 end
 
 --- Handle add allowed player request
@@ -877,8 +927,8 @@ local function handleAddPlayer(player, args)
     end
 
     -- Check ownership
-    local ownerID = VehicleClaim.getOwnerID(vehicle)
-    if ownerID ~= steamID and not isAdmin(player) then
+    local registryEntry = getGlobalRegistry()[vehicleHash]
+    if not registryEntry or (registryEntry.ownerSteamID ~= steamID and not isAdmin(player)) then
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
             reason = VehicleClaim.ERR_NOT_OWNER
         })
@@ -894,28 +944,19 @@ local function handleAddPlayer(player, args)
         return
     end
 
-    -- Add to allowed list in ModData
-    local claimData = VehicleClaim.getClaimData(vehicle)
-    if claimData then
-        if not claimData[VehicleClaim.ALLOWED_PLAYERS_KEY] then
-            claimData[VehicleClaim.ALLOWED_PLAYERS_KEY] = {}
-        end
-        claimData[VehicleClaim.ALLOWED_PLAYERS_KEY][targetSteamID] = targetPlayerName
-        broadcastVehicleModData(vehicle, vehicleHash)
+    local allowedPlayers = registryEntry.allowedPlayers or {}
+    allowedPlayers[targetSteamID] = targetPlayerName
+    updateRegistryAllowedPlayers(vehicleHash, allowedPlayers)
+    syncVehicleClaimFromRegistry(vehicle)
+    local claimData = buildClaimDataFromRegistry(registryEntry, vehicleHash)
 
-        -- Also update in global registry (for display in panels when vehicle unloaded)
-        updateRegistryAllowedPlayers(vehicleHash, claimData[VehicleClaim.ALLOWED_PLAYERS_KEY])
-
-        VehicleClaim.log("Added " .. targetPlayerName .. " to vehicle access")
-
-        -- Send back full claimData so UI can refresh
-        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_PLAYER_ADDED, {
-            vehicleHash = vehicleHash,
-            addedSteamID = targetSteamID,
-            addedPlayerName = targetPlayerName,
-            claimData = claimData -- Include full claim data for UI update
-        })
-    end
+    VehicleClaim.log("Added " .. targetPlayerName .. " to vehicle access")
+    sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_PLAYER_ADDED, {
+        vehicleHash = vehicleHash,
+        addedSteamID = targetSteamID,
+        addedPlayerName = targetPlayerName,
+        claimData = claimData
+    })
 end
 
 --- Handle remove allowed player request
@@ -956,34 +997,28 @@ local function handleRemovePlayer(player, args)
     end
 
     -- Check ownership
-    local ownerID = VehicleClaim.getOwnerID(vehicle)
-    if ownerID ~= steamID and not isAdmin(player) then
+    local registryEntry = getGlobalRegistry()[vehicleHash]
+    if not registryEntry or (registryEntry.ownerSteamID ~= steamID and not isAdmin(player)) then
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
             reason = VehicleClaim.ERR_NOT_OWNER
         })
         return
     end
 
-    -- Remove from allowed list in ModData
-    local claimData = VehicleClaim.getClaimData(vehicle)
-    if claimData and claimData[VehicleClaim.ALLOWED_PLAYERS_KEY] then
-        local removedName = claimData[VehicleClaim.ALLOWED_PLAYERS_KEY][targetSteamID] or "Player"
-        claimData[VehicleClaim.ALLOWED_PLAYERS_KEY][targetSteamID] = nil
-        broadcastVehicleModData(vehicle, vehicleHash)
+    local allowedPlayers = registryEntry.allowedPlayers or {}
+    local removedName = allowedPlayers[targetSteamID] or "Player"
+    allowedPlayers[targetSteamID] = nil
+    updateRegistryAllowedPlayers(vehicleHash, allowedPlayers)
+    syncVehicleClaimFromRegistry(vehicle)
+    local claimData = buildClaimDataFromRegistry(registryEntry, vehicleHash)
 
-        -- Also update in global registry (for display in panels when vehicle unloaded)
-        updateRegistryAllowedPlayers(vehicleHash, claimData[VehicleClaim.ALLOWED_PLAYERS_KEY])
-
-        VehicleClaim.log("Removed " .. removedName .. " from vehicle access")
-
-        -- Send back full claimData so UI can refresh
-        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_PLAYER_REMOVED, {
-            vehicleHash = vehicleHash,
-            removedSteamID = targetSteamID,
-            removedPlayerName = removedName,
-            claimData = claimData -- Include full claim data for UI update
-        })
-    end
+    VehicleClaim.log("Removed " .. removedName .. " from vehicle access")
+    sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_PLAYER_REMOVED, {
+        vehicleHash = vehicleHash,
+        removedSteamID = targetSteamID,
+        removedPlayerName = removedName,
+        claimData = claimData
+    })
 end
 
 --- Handle vehicle info request - REMOVED (clients read ModData directly)
@@ -1126,7 +1161,7 @@ local function handleUpdateLastSeen(player, args)
     end
 
     -- Verify the player actually owns or has access to this vehicle
-    if not VehicleClaim.hasAccess(vehicle, actualSteamID) then
+    if not hasRegistryVehicleAccess(vehicle, actualSteamID) then
         return
     end
 
@@ -1232,8 +1267,7 @@ end
 -----------------------------------------------------------
 
 --- Synchronize vehicle claim data when a vehicle is loaded/rendered
---- This checks if the vehicle has claim modData and verifies it against the server registry
---- If the registry doesn't have this claim, the modData is cleared (allowing remote unclaims)
+--- Rebuild the vehicle claim ModData mirror from the server registry when loaded.
 --- @param vehicle IsoVehicle
 local function syncVehicleClaimOnLoad(vehicle)
     if not isServer() then
@@ -1243,45 +1277,10 @@ local function syncVehicleClaimOnLoad(vehicle)
         return
     end
 
-    -- Check if vehicle has any claim data in modData
-    local claimData = VehicleClaim.getClaimData(vehicle)
-    if not claimData then
-        -- No claim data, nothing to sync
-        return
-    end
-
-    -- Get the vehicle hash
-    local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
-    if not vehicleHash then
-        -- No hash means this vehicle was never properly claimed
-        -- Skip this vehicle (don't clear data without hash to avoid accidents)
-        VehicleClaim.log("[Sync] Vehicle has claim data but no hash - skipping sync")
-        return
-    end
-
-    -- Check if this claim exists in the server registry
-    local registry = getGlobalRegistry()
-    local registryEntry = registry[vehicleHash]
-
-    if not registryEntry then
-        -- Claim exists in modData but NOT in registry
-        -- This means it was unclaimed remotely - clear the modData
-        VehicleClaim.log("[Sync] Vehicle " .. vehicleHash ..
-                             " has claim in modData but not in registry - clearing stale data")
-
-        local modData = vehicle:getModData()
-        modData[VehicleClaim.MODDATA_KEY] = nil
-        broadcastVehicleModData(vehicle, vehicleHash)
-
-        VehicleClaim.log("[Sync] Cleared stale claim data from vehicle " .. vehicleHash)
-    else
-        -- update position in registry
-        local vehicleHash = VehicleClaim.getVehicleHash(vehicle)
-        if vehicleHash then
-            updateRegistryPosition(vehicleHash, vehicle:getX(), vehicle:getY())
-            -- save the car data in the server
-            VehicleClaim.updateCarDatabase(vehicle)
-        end
+    local registryEntry, vehicleHash = syncVehicleClaimFromRegistry(vehicle)
+    if registryEntry then
+        updateRegistryPosition(vehicleHash, vehicle:getX(), vehicle:getY())
+        VehicleClaim.updateCarDatabase(vehicle)
     end
 end
 
@@ -1302,6 +1301,77 @@ end
 -- Vehicle Interaction Enforcement
 -----------------------------------------------------------
 
+local unauthorizedVehicleStrikes = {}
+local UNAUTHORIZED_VEHICLE_STRIKE_LIMIT = 3
+
+local function enforceVehicleAccess(player, vehicle)
+    if not player or not vehicle then
+        return true
+    end
+
+    local steamID = VehicleClaim.getPlayerSteamID(player)
+    local registryEntry = syncVehicleClaimFromRegistry(vehicle)
+    local hasAccess = not registryEntry
+    if registryEntry and steamID then
+        local allowedPlayers = registryEntry.allowedPlayers or {}
+        hasAccess = registryEntry.ownerSteamID == steamID or allowedPlayers[steamID] ~= nil
+    end
+    if hasAccess or isAdmin(player) then
+        return true
+    end
+
+    player:setVehicle(nil)
+
+    local playerKey = steamID or player:getUsername() or tostring(player)
+    unauthorizedVehicleStrikes[playerKey] = (unauthorizedVehicleStrikes[playerKey] or 0) + 1
+    local strikes = unauthorizedVehicleStrikes[playerKey]
+    local playerName = tostring(player:getUsername() or playerKey)
+    local ownerName = registryEntry.ownerName or "another player"
+
+    sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_ACCESS_DENIED, {
+        action = "enter",
+        ownerName = ownerName
+    })
+
+    VehicleClaim.log("Ejected " .. playerName .. " from unauthorized vehicle (strike " .. strikes .. "/" ..
+        UNAUTHORIZED_VEHICLE_STRIKE_LIMIT .. ")")
+
+    if strikes >= UNAUTHORIZED_VEHICLE_STRIKE_LIMIT then
+        local kill = player.Kill
+        local killed = false
+        if type(kill) == "function" then
+            killed = pcall(function()
+                player:Kill(nil)
+            end)
+        end
+        if not killed and type(player.setHealth) == "function" then
+            player:setHealth(0)
+        end
+        VehicleClaim.log("Killed " .. playerName .. " after repeated unauthorized vehicle access")
+    end
+
+    return false
+end
+
+local function checkOnlinePlayerVehicleAccess()
+    if not isServer() then
+        return
+    end
+
+    local players = getOnlinePlayers()
+    if not players then
+        return
+    end
+
+    for i = 0, players:size() - 1 do
+        local player = players:get(i)
+        local vehicle = player and player:getVehicle()
+        if vehicle then
+            enforceVehicleAccess(player, vehicle)
+        end
+    end
+end
+
 --- Block unauthorized vehicle entry
 --- @param player IsoPlayer
 --- @param vehicle IsoVehicle
@@ -1311,20 +1381,7 @@ function VehicleClaimServer.onEnterVehicle(player, vehicle, seat)
         return
     end
 
-    local steamID = VehicleClaim.getPlayerSteamID(player)
-
-    -- Check access (reads from vehicle ModData)
-    if not VehicleClaim.hasAccess(vehicle, steamID) and not isAdmin(player) then
-        -- Force exit (server-side enforcement)
-        player:setVehicle(nil)
-
-        local ownerName = VehicleClaim.getOwnerName(vehicle) or "another player"
-        sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_ACCESS_DENIED, {
-            action = "enter",
-            ownerName = ownerName
-        })
-
-        VehicleClaim.log("Blocked " .. player:getUsername() .. " from entering vehicle owned by " .. ownerName)
+    if not enforceVehicleAccess(player, vehicle) then
         return false
     end
 
@@ -1344,7 +1401,7 @@ function VehicleClaimServer.onMechanicsAction(player, vehicle, part)
 
     local steamID = VehicleClaim.getPlayerSteamID(player)
 
-    if not VehicleClaim.hasAccess(vehicle, steamID) and not isAdmin(player) then
+    if not hasRegistryVehicleAccess(vehicle, steamID) and not isAdmin(player) then
         local ownerName = VehicleClaim.getOwnerName(vehicle) or "another player"
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_ACCESS_DENIED, {
             action = "repair",
@@ -1372,7 +1429,7 @@ function VehicleClaimServer.onTimedActionValidate(action)
     local vehicle = action.vehicle
     local steamID = VehicleClaim.getPlayerSteamID(player)
 
-    if not VehicleClaim.hasAccess(vehicle, steamID) and not isAdmin(player) then
+    if not hasRegistryVehicleAccess(vehicle, steamID) and not isAdmin(player) then
         -- Cancel the action
         action:forceStop()
 
@@ -1407,9 +1464,9 @@ function VehicleClaimServer.onVehicleAttachTrailerCommand(module, command, playe
     local steamID = VehicleClaim.getPlayerSteamID(player)
     local deniedVehicle = nil
 
-    if not VehicleClaim.hasAccess(vehicleA, steamID) and not isAdmin(player) then
+    if not hasRegistryVehicleAccess(vehicleA, steamID) and not isAdmin(player) then
         deniedVehicle = vehicleA
-    elseif not VehicleClaim.hasAccess(vehicleB, steamID) and not isAdmin(player) then
+    elseif not hasRegistryVehicleAccess(vehicleB, steamID) and not isAdmin(player) then
         deniedVehicle = vehicleB
     end
 
@@ -1464,6 +1521,10 @@ if Events.OnEnterVehicle then
             VehicleClaimServer.onEnterVehicle(player, vehicle, 0)
         end
     end)
+end
+
+if Events.EveryOneMinute then
+    Events.EveryOneMinute.Add(checkOnlinePlayerVehicleAccess)
 end
 
 return VehicleClaimServer

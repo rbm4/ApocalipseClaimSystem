@@ -3,3 +3,5 @@ Sandbox_VehicleClaimSystem_MaxClaimsPerPlayer = "Maximo de Veiculos por Jogador"
 Sandbox_VehicleClaimSystem_MaxClaimsPerPlayer_tooltip = "Numero maximo de veiculos que um unico jogador pode reivindicar. Defina mais baixo para evitar acumulo, mais alto para permitir mais veiculos pessoais.",
 Sandbox_VehicleClaimSystem_AbandonedDaysThreshold = "Dias de Veiculo Abandonado",
 Sandbox_VehicleClaimSystem_AbandonedDaysThreshold_tooltip = "Numero de dias do mundo real (24 horas) sem atividade antes que outros jogadores possam contestar a reivindicacao. Defina como 0 para desativar (para testes), ou mais alto para proteger reivindicacoes por mais tempo. Padrao: 7 dias.",
+Sandbox_VehicleClaimSystem_EnableVehicleAccessAntiCheat = "Ativar anticheat de acesso a veículos",
+Sandbox_VehicleClaimSystem_EnableVehicleAccessAntiCheat_tooltip = "Verifica um jogador online por tick do servidor e expulsa quem estiver em um veículo reivindicado sem permissão. Após três detecções de acesso não autorizado, o personagem é morto.",

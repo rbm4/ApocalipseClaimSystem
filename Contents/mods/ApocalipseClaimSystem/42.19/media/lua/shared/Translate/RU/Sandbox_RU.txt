@@ -4,4 +4,6 @@ Sandbox_RU = {
     Sandbox_VehicleClaimSystem_MaxClaimsPerPlayer_tooltip = "Максимальное число машин на одного игрока. Убавьте, чтобы предотвратить накопление машин, или прибавьте, чтобы разрешить больше персонального транспорта.",
     Sandbox_VehicleClaimSystem_AbandonedDaysThreshold = "Дней до того как машина будет считаться брошенной",
     Sandbox_VehicleClaimSystem_AbandonedDaysThreshold_tooltip = "Число дней (реальных) неактивности, прежде чем другие игроки смогут занять машину. 0 - отключить. По улочанию: 7 дней",
+    Sandbox_VehicleClaimSystem_EnableVehicleAccessAntiCheat = "Включить античит доступа к транспорту",
+    Sandbox_VehicleClaimSystem_EnableVehicleAccessAntiCheat_tooltip = "Проверяет одного игрока за серверный тик и высаживает тех, кто находится в заявленном транспорте без доступа. После трёх обнаружений несанкционированного доступа персонаж погибает.",
 }

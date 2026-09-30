@@ -460,6 +460,18 @@ function VehicleClaim.getAbandonedDaysThreshold()
     return 7
 end
 
+--- Check whether the per-tick vehicle access anti-cheat is enabled
+--- @return boolean
+function VehicleClaim.isVehicleAccessAntiCheatEnabled()
+    if isServer() or isClient() then
+        local sandboxVars = SandboxVars
+        if sandboxVars and sandboxVars.VehicleClaimSystem then
+            return sandboxVars.VehicleClaimSystem.EnableVehicleAccessAntiCheat ~= false
+        end
+    end
+    return true
+end
+
 --- Check if a vehicle is considered abandoned based on last seen timestamp
 --- @param vehicle IsoVehicle
 --- @return boolean isAbandoned

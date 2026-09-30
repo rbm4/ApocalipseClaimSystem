@@ -19,3 +19,11 @@ option VehicleClaimSystem.AbandonedDaysThreshold
     page = VehicleClaimSystem,
     translation = VehicleClaimSystem_AbandonedDaysThreshold,
 }
+
+option VehicleClaimSystem.EnableVehicleAccessAntiCheat
+{
+    type = boolean,
+    default = false,
+    page = VehicleClaimSystem,
+    translation = VehicleClaimSystem_EnableVehicleAccessAntiCheat,
+}

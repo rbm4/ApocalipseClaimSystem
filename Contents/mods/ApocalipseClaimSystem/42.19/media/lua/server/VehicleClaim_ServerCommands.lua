@@ -1347,7 +1347,7 @@ end
 local onlinePlayerVehicleCheckIndex = 0
 
 local function checkOneOnlinePlayerVehicleAccess()
-    if not isServer() then
+    if not isServer() or not VehicleClaim.isVehicleAccessAntiCheatEnabled() then
         return
     end
 

@@ -46,16 +46,16 @@ Clients provide UI and timed actions, then send requests. The server validates i
 
 #### Decompiled Network Evidence (42.21.0)
 
-The supplied 42.21.0 decompiled source shows the following object-ModData route:
+Analyzing the game's source code from 42.21.0 decompiled source shows the following object-ModData route:
 
 1. Client-side `IsoObject.transmitModData()` sends an `ObjectModData` packet.
 2. `ObjectModDataPacket.parse()` resolves the target object and loads the received table into that object's ModData.
 3. `MovingObject` resolves vehicle objects by vehicle ID; the packet's consistency check confirms that the object resolves, not that the sender owns the vehicle.
-4. Server packet processing relays the received object state to relevant clients.
+4. Server packet processing relays the received manipulated object state to relevant clients.
 
-Because vehicles are `IsoObject` instances, this provides a plausible route for a modified client to overwrite its server-side vehicle claim mirror. Removing the mod's client-side entry block is a separate, trivial bypass: it disables only local behavior. The prior direct-release and occupancy design could then be fooled if it trusted the resulting vehicle ModData. Current Lua checks instead consult the registry.
+Because vehicles are `IsoObject` instances, this provides a plausible route for a modified client to overwrite its server-side vehicle claim modData mirror. Removing the mod's client-side entry block is a separate, trivial bypass: it disables only local behavior. The prior direct-release and occupancy design could then be fooled if it trusted the resulting vehicle ModData. Current Lua checks instead consult the registry now.
 
-These decompiled packet findings are specifically from game build 42.21.0, while this mod folder is `42.19`. Confirm packet behavior against the exact target game build before treating the packet analysis as version-certified. The Lua registry-authority change itself does not stop vanilla from parsing that packet.
+These decompiled packet findings are specifically from game build 42.21.0, while this mod folder is `42.19`. Confirm packet behavior against the exact target game build before treating the packet analysis as version-certified. The Lua registry-authority change itself does not stop vanilla from parsing that packet. These changes are aimed to make the mod immune to data corruption from clients trying to tamper with the authenticity of the data in the Vechicle's modData.
 
 ---
 

@@ -28,7 +28,6 @@ VehicleClaim.SYNC_DISTANCE = 100.0 -- Max distance to receive vehicle claim modD
 
 -- Command types (client -> server)
 VehicleClaim.CMD_CLAIM = "claimVehicle"
-VehicleClaim.CMD_RELEASE = "releaseClaim"
 VehicleClaim.CMD_RELEASE_REMOTE = "releaseClaimRemote" -- Release without requiring vehicle to be loaded
 VehicleClaim.CMD_CONTEST_CLAIM = "contestClaim" -- Contest an abandoned vehicle claim
 VehicleClaim.CMD_ADD_PLAYER = "addAllowedPlayer"

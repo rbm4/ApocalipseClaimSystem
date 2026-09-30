@@ -37,10 +37,10 @@ Clients provide UI and timed actions, then send requests. The server validates i
 ### **Security Model and Known Network Risk**
 - **Registry authority:** the server's `VehicleClaimRegistry` stores owner, allowed players, last-seen time, and last-known coordinates. Sensitive authorization and contest checks use these server-side entries.
 - **Vehicle ModData is a mirror:** the game network path can accept client-sent object ModData. A modified client may alter or remove vehicle claim data locally and transmit it; a client-side UI or enforcement hook is not a security boundary.
-- **Canonical repair:** server Lua rebuilds the loaded vehicle's claim mirror from its registry entry on load, entry, and periodic occupancy checks. Server decisions do not rely on the received owner/access fields.
+- **Canonical repair:** server Lua rebuilds the loaded vehicle's claim mirror from its registry entry on load, entry, and rotating occupancy checks. Server decisions do not rely on the received owner/access fields.
 - **Unclaim security:** nearby timed release and remote release both route to the registry-authorized release handler. A sender must match the owner Steam ID in the registry. Admin status does not bypass owner-only release.
 - **Contest security:** contest uses registry owner and last-seen values, checks server-side proximity using loaded vehicle coordinates or registry coordinates, and removes a claim through the same registry release routine.
-- **Occupancy enforcement:** the server checks access when the entry event fires and scans online players once per minute. Unauthorized occupancy is ejected and counted in memory; the third strike kills the player. Admins retain the vehicle-operation exemption, determined from the server-side player's current `getAccessLevel()` rather than a client-supplied or separately cached admin list.
+- **Occupancy enforcement:** the server checks access when the entry event fires and checks one online player per server `OnTick` using a rotating index. Each tick does bounded work; a player is revisited within at most one pass through the online-player list. Unauthorized occupants are ejected and counted in memory; the third strike kills the player. Admins retain the vehicle-operation exemption, determined from the server-side player's current `getAccessLevel()` rather than a client-supplied or separately cached admin list.
 - **Client enforcement is UX only:** modified clients can remove the mod's client-side blocking. Server validation is still required for actual protection.
 - **Remaining limitation:** Lua reconciliation repairs ModData after the game packet has been parsed; it does not block the vanilla client-to-server modData packet itself. Preventing that write at its source would require a Java patch for the exact game build. In the meantime, all sensitive mod decisions will continue using registry state.
 
@@ -177,7 +177,7 @@ Server-only code with authority over all state changes.
   - Admin-level bulk operations
 - **Send responses** back to clients with claim data
 - **Broadcast mirror changes** to nearby players through `syncVehicleModData` server commands
-- **Synchronize on vehicle load, entry, and periodic occupancy checks** - rebuilds loaded claim ModData from registry data
+- **Synchronize on vehicle load, entry, and rotating occupancy checks** - rebuilds loaded claim ModData from registry data
 - **Use registry state** for release, contest, access-list changes, occupancy, and other sensitive validations
 
 **Command Handlers:**
@@ -185,7 +185,6 @@ Server-only code with authority over all state changes.
 | Handler | Command | Purpose |
 |---------|---------|---------|
 | `handleClaimVehicle` | `claimVehicle` | Claim an unclaimed vehicle (proximity required) |
-| `handleReleaseClaim` | `releaseClaim` | Compatibility route to registry-authorized release |
 | `handleReleaseClaimRemote` | `releaseClaimRemote` | Registry-authorized owner release from any distance; used by nearby and remote UI flows |
 | `handleContestClaim` | `contestClaim` | Contest an abandoned registry claim (server-side proximity required) |
 | `handleAddPlayer` | `addAllowedPlayer` | Grant access to another player (proximity required) |
@@ -202,11 +201,13 @@ Vehicle spawns/loads → syncVehicleClaimOnLoad()
     → In registry: restore canonical claim fields and update position
     → NOT in registry: clear stale claim fields from the mirror
 
-Vehicle entry / periodic online-player scan
+Vehicle entry / rotating online-player check on `OnTick`
   → Read owner and allow-list from registry
   → Repair altered vehicle claim fields
   → Allow owner/allowed/admin, otherwise eject and count strike
 ```
+
+The rotating check examines one player per server tick rather than traversing the whole online-player list each tick. With `N` online players, a player is revisited within approximately `N` server ticks. The entry event remains a best-effort fast path; the rotating check is the Lua-side backstop for persistent unauthorized occupancy. It cannot guarantee detecting a player who enters and exits entirely between that player's checks.
 
 **Data Flow:**
 ```
@@ -219,7 +220,7 @@ Server Global Claim Registry → server authorization and canonical claim mirror
 - `Events.OnClientCommand.Add()` - command router
 - `Events.OnSpawnVehicleStart.Add()` - vehicle load synchronization
 - `Events.OnEnterVehicle.Add()` - registry-backed vehicle entry enforcement
-- `Events.EveryOneMinute.Add()` - independent registry-backed occupancy scan and mirror repair
+- `Events.OnTick.Add()` - rotating registry-backed occupancy check, one online player per server tick
 
 ---
 
@@ -381,7 +382,7 @@ VehicleClaimEnforcement.hasAccess(player, vehicle)
 - `OnContainerUpdate` - Closes unauthorized container access
 - `OnGameStart` - Initializes all hooks after game loads
 
-**Security Note:** Client-side enforcement is **UX only** and can be removed or bypassed by a modified client. Server Lua independently checks access on vehicle entry and during its periodic occupancy scan. Server protection must not depend on these local hooks.
+**Security Note:** Client-side enforcement is **UX only** and can be removed or bypassed by a modified client. Server Lua independently checks access on vehicle entry and checks one online player per server `OnTick` through a rotating scan. Server protection must not depend on these local hooks.
 
 ---
 
@@ -508,7 +509,7 @@ ModData.getOrCreate("VehicleClaimRegistry")
 - Server responds with `myClaims` containing all player's claims
 - Vehicle list panel uses this data instead of local cell scan
 - **Vehicle load sync**: When vehicles load, server rebuilds the claim mirror from the registry or clears unregistered claim fields
-- **Entry and occupancy sync**: Entry checks and a once-per-minute online-player scan validate access from registry data and repair altered mirrors
+- **Entry and occupancy sync**: Entry checks and a rotating one-player-per-server-`OnTick` scan validate access from registry data and repair altered mirrors
 
 ### **Remote Unclaiming**
 When a player releases a vehicle remotely:
@@ -573,7 +574,6 @@ Defined in `VehicleClaim.CMD_*` constants:
 | Command | Purpose | Validation Required |
 |---------|---------|-------------------|
 | `claimVehicle` | Request to claim a vehicle | Proximity, not already claimed, under limit |
-| `releaseClaim` | Compatibility route for local release requests | Owner Steam ID in registry; handled through remote release path |
 | `releaseClaimRemote` | Release ownership (any distance; also used after nearby timed action) | Owner Steam ID in registry |
 | `contestClaim` | Contest an abandoned claim | Proximity, not owner, vehicle abandoned |
 | `addAllowedPlayer` | Grant access to player | Ownership or admin, proximity |
@@ -790,10 +790,10 @@ local abandonedDays = SandboxVars.VehicleClaimSystem.AbandonedDaysThreshold
 1. **Registry-backed authorization:** owner Steam ID, allowed-player list, claim timestamps, and stored coordinates come from the server's claim registry, not client-synchronized vehicle claim fields.
 2. **Sender verification:** commands compare the supplied Steam ID against the server's player object.
 3. **Server-calculated range:** claim and access-management distances are calculated by the server using an 8-tile configured radius. Remote owner release has no proximity requirement.
-4. **Owner-only release:** both `releaseClaim` and `releaseClaimRemote` use the same registry-authorized release path; neither admin level nor vehicle ModData substitutes for registry ownership.
+4. **Owner-only release:** `releaseClaimRemote` is the release command and validates the registry owner; neither admin level nor vehicle ModData substitutes for registry ownership.
 5. **Registry-backed contest:** the server validates non-owner status, configured abandonment age, and proximity from loaded vehicle coordinates or registry coordinates, then uses the shared release operation.
-6. **Mirror repair:** on load, entry, and the periodic occupancy scan, the server restores registered claims and removes unregistered claim data from loaded vehicles. A server-retained vehicle/hash association helps locate a claim if client ModData is altered after the server has associated that vehicle.
-7. **Server occupancy enforcement:** entry and periodic checks validate the player's vehicle against registry ownership/access, eject unauthorized occupants, and track strikes in server memory. The third strike kills the player. Admins remain exempt from vehicle-operation restrictions.
+6. **Mirror repair:** on load, entry, and the rotating occupancy scan, the server restores registered claims and removes unregistered claim data from loaded vehicles. A server-retained vehicle/hash association helps locate a claim if client ModData is altered after the server has associated that vehicle.
+7. **Server occupancy enforcement:** the entry event is a best-effort fast path; `OnTick` checks one online player per tick in rotation against registry ownership/access, repairs the mirror, and ejects unauthorized occupants. Strikes are held in server memory and the third strike kills the player. Admins remain exempt from vehicle-operation restrictions. The scan bounds repeated-check cost, but may not observe an entry that begins and ends between checks.
 8. **Server-side claim limits:** claim counts are calculated from registry entries, including unloaded vehicles.
 
 **Known limitation:** The vanilla game can parse a client-sent object ModData packet into the server-side object before mod Lua can repair it. These Lua changes do not intercept or reject that packet. Sensitive mod decisions avoid trusting those mutable claim fields; blocking the write itself requires a Java patch targeting the exact game build. The mod's `42.19` implementation should not be assumed compatible with a different game's networking implementation without validation.
@@ -813,9 +813,9 @@ local abandonedDays = SandboxVars.VehicleClaimSystem.AbandonedDaysThreshold
 
 ✅ See local UI earlier (cosmetic only)
 ✅ Send invalid requests (server rejects them)
-✅ Remove or bypass client-side enforcement and alter their local vehicle ModData mirror; server registry checks and occupancy enforcement are intended to preserve the claim's authorization
+✅ Remove or bypass client-side enforcement and alter their local vehicle ModData mirror; server registry checks and rotating occupancy enforcement are intended to preserve the claim's authorization
 
-**Important:** A client can send altered object ModData through the game networking path. The mod treats this as untrusted mirror state, but Lua does not block the underlying packet. The server registry and periodic repair reduce the impact; runtime testing and, for packet-level prevention, a build-matched Java patch remain necessary.
+**Important:** A client can send altered object ModData through the game networking path. The mod treats this as untrusted mirror state, but Lua does not block the underlying packet. The server registry and rotating repair reduce the impact; runtime testing and, for packet-level prevention, a build-matched Java patch remain necessary.
 
 ---
 
@@ -939,7 +939,7 @@ The checklist below describes expected behavior, not a record of tests run for t
 - ✅ Proximity checked server-side for claims and modifications
 - ✅ Claim limit enforced server-side (registry count)
 - ✅ Claim ownership and access checks use registry data rather than vehicle ModData
-- ✅ Tampered claim fields are repaired from the registry on load, entry, and periodic occupancy scan
+- ✅ Tampered claim fields are repaired from the registry on load, entry, and rotating one-player-per-tick occupancy scan
 - ✅ Nearby timed release and remote release share the registry-authorized owner check
 - ✅ Contest owner, abandonment, and release decisions use registry data
 - ✅ Unauthorized occupants are ejected and strike-counted; the third strike triggers death

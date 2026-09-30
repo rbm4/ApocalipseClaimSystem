@@ -740,12 +740,6 @@ local function handleClaimVehicle(player, args)
 end
 
 --- Handle release claim request
-local handleReleaseClaimRemote
-
-local function handleReleaseClaim(player, args)
-    handleReleaseClaimRemote(player, args)
-end
-
 local function finishRegistryRelease(player, vehicleHash, contested)
     local vehicle = findVehicleByHash(vehicleHash)
     if vehicle then
@@ -1227,9 +1221,6 @@ function VehicleClaimServer.onClientCommand(module, command, player, args)
     if command == VehicleClaim.CMD_CLAIM then
         handleClaimVehicle(player, args)
 
-    elseif command == VehicleClaim.CMD_RELEASE then
-        handleReleaseClaim(player, args)
-
     elseif command == VehicleClaim.CMD_RELEASE_REMOTE then
         handleReleaseClaimRemote(player, args)
 
@@ -1353,22 +1344,38 @@ local function enforceVehicleAccess(player, vehicle)
     return false
 end
 
-local function checkOnlinePlayerVehicleAccess()
+local onlinePlayerVehicleCheckIndex = 0
+
+local function checkOneOnlinePlayerVehicleAccess()
     if not isServer() then
         return
     end
 
     local players = getOnlinePlayers()
     if not players then
+        onlinePlayerVehicleCheckIndex = 0
         return
     end
 
-    for i = 0, players:size() - 1 do
-        local player = players:get(i)
-        local vehicle = player and player:getVehicle()
-        if vehicle then
-            enforceVehicleAccess(player, vehicle)
-        end
+    local playerCount = players:size()
+    if playerCount <= 0 then
+        onlinePlayerVehicleCheckIndex = 0
+        return
+    end
+
+    if onlinePlayerVehicleCheckIndex >= playerCount then
+        onlinePlayerVehicleCheckIndex = 0
+    end
+
+    local player = players:get(onlinePlayerVehicleCheckIndex)
+    onlinePlayerVehicleCheckIndex = onlinePlayerVehicleCheckIndex + 1
+    if onlinePlayerVehicleCheckIndex >= playerCount then
+        onlinePlayerVehicleCheckIndex = 0
+    end
+
+    local vehicle = player and player:getVehicle()
+    if vehicle then
+        enforceVehicleAccess(player, vehicle)
     end
 end
 
@@ -1523,8 +1530,8 @@ if Events.OnEnterVehicle then
     end)
 end
 
-if Events.EveryOneMinute then
-    Events.EveryOneMinute.Add(checkOnlinePlayerVehicleAccess)
+if Events.OnTick then
+    Events.OnTick.Add(checkOneOnlinePlayerVehicleAccess)
 end
 
 return VehicleClaimServer

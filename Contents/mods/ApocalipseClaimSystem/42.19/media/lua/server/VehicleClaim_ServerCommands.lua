@@ -334,12 +334,40 @@ local function getRegistryClaimForVehicle(vehicle)
     return nil, vehicleHash
 end
 
+--- Authoritative server-only lookup for integrations that must not trust a
+--- vehicle's client-synchronised claim ModData.
+--- @param vehicle BaseVehicle
+--- @return table|nil registryEntry
+--- @return string|nil vehicleHash
+function VehicleClaim.getServerRegistryClaim(vehicle)
+    return getRegistryClaimForVehicle(vehicle)
+end
+
+--- Check the persistent server registry rather than the vehicle's local
+--- ModData.  Use this at the final mutation boundary for destructive actions.
+--- @param vehicle BaseVehicle
+--- @return boolean
+function VehicleClaim.isClaimedInServerRegistry(vehicle)
+    local entry = getRegistryClaimForVehicle(vehicle)
+    return entry ~= nil
+end
+
+-- Keep the registry and vehicle mirror independent so permission changes are
+-- detected before the updated mirror is broadcast to nearby clients.
+local function copyAllowedPlayers(allowedPlayers)
+    local copy = {}
+    for steamID, playerName in pairs(allowedPlayers or {}) do
+        copy[steamID] = playerName
+    end
+    return copy
+end
+
 local function buildClaimDataFromRegistry(entry, vehicleHash)
     return {
         [VehicleClaim.OWNER_KEY] = entry.ownerSteamID,
         [VehicleClaim.OWNER_NAME_KEY] = entry.ownerName,
         [VehicleClaim.VEHICLE_NAME_KEY] = entry.vehicleName or "Unknown Vehicle",
-        [VehicleClaim.ALLOWED_PLAYERS_KEY] = entry.allowedPlayers or {},
+        [VehicleClaim.ALLOWED_PLAYERS_KEY] = copyAllowedPlayers(entry.allowedPlayers),
         [VehicleClaim.CLAIM_TIME_KEY] = entry.claimTime or 0,
         [VehicleClaim.LAST_SEEN_KEY] = entry.lastSeen or entry.claimTime or 0,
         [VehicleClaim.VEHICLE_HASH_KEY] = vehicleHash
@@ -938,7 +966,7 @@ local function handleAddPlayer(player, args)
         return
     end
 
-    local allowedPlayers = registryEntry.allowedPlayers or {}
+    local allowedPlayers = copyAllowedPlayers(registryEntry.allowedPlayers)
     allowedPlayers[targetSteamID] = targetPlayerName
     updateRegistryAllowedPlayers(vehicleHash, allowedPlayers)
     syncVehicleClaimFromRegistry(vehicle)
@@ -999,7 +1027,7 @@ local function handleRemovePlayer(player, args)
         return
     end
 
-    local allowedPlayers = registryEntry.allowedPlayers or {}
+    local allowedPlayers = copyAllowedPlayers(registryEntry.allowedPlayers)
     local removedName = allowedPlayers[targetSteamID] or "Player"
     allowedPlayers[targetSteamID] = nil
     updateRegistryAllowedPlayers(vehicleHash, allowedPlayers)

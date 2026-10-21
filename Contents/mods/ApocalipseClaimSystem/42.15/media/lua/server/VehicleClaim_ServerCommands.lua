@@ -430,8 +430,9 @@ local function handleClaimVehicle(player, args)
         return
     end
 
-    -- Check proximity
-    if not VehicleClaim.isWithinRange(player, vehicle) then
+    -- Claiming from a seat is only allowed for the vehicle being claimed.
+    local occupiedVehicle = player:getVehicle()
+    if (occupiedVehicle and occupiedVehicle ~= vehicle) or not VehicleClaim.isWithinRange(player, vehicle) then
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_FAILED, {
             reason = VehicleClaim.ERR_TOO_FAR
         })

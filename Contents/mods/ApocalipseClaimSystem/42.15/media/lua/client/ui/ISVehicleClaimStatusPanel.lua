@@ -322,10 +322,13 @@ function ISVehicleClaimStatusPanel:onActionButton()
     local isAdmin = self.player:getAccessLevel() == "admin" or self.player:getAccessLevel() == "moderator"
 
     if not isClaimed then
-        if self.player:getVehicle() then
-            ISVehicleMenu.onExit(self.player)
+        -- Claim the occupied vehicle from the seat (boats cannot pathfind over water).
+        if self.player:getVehicle() ~= self.vehicle then
+            if self.player:getVehicle() then
+                ISVehicleMenu.onExit(self.player)
+            end
+            ISTimedActionQueue.add(ISPathFindAction:pathToVehicleAdjacent(self.player, self.vehicle))
         end
-        ISTimedActionQueue.add(ISPathFindAction:pathToVehicleAdjacent(self.player, self.vehicle))
         ISTimedActionQueue.add(ISClaimVehicleAction:new(self.player, self.vehicle, VehicleClaim.CLAIM_TIME_TICKS))
     elseif isOwner or isAdmin then
         -- Remote release via modal confirmation (no timed action)

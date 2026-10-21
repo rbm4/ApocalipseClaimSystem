@@ -17,11 +17,12 @@ local VehicleClaimMenu = {}
 ISClaimVehicleAction = ISBaseTimedAction:derive("ISClaimVehicleAction")
 
 function ISClaimVehicleAction:isValid()
-    -- Validate vehicle still exists (pathfinding handles positioning)
+    -- Validate vehicle still exists and reject claiming from another vehicle.
     if not self.vehicle or not self.vehicle:getSquare() then
         return false
     end
-    return true
+    local occupiedVehicle = self.character:getVehicle()
+    return not occupiedVehicle or occupiedVehicle == self.vehicle
 end
 
 function ISClaimVehicleAction:waitToStart()
@@ -34,8 +35,10 @@ function ISClaimVehicleAction:update()
 end
 
 function ISClaimVehicleAction:start()
-    -- Animation: character interacts with vehicle
-    self:setActionAnim("Loot")
+    -- Keep the seated pose when claiming the vehicle from inside.
+    if self.character:getVehicle() ~= self.vehicle then
+        self:setActionAnim("Loot")
+    end
 end
 
 function ISClaimVehicleAction:stop()

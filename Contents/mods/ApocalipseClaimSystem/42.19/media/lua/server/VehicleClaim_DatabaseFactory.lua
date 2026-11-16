@@ -1,9 +1,9 @@
 if not isServer() then return end
-require "shared/VehicleClaim_Shared"
-require "shared/VehicleClaim_Config"
+require "VehicleClaim_Shared"
+require "VehicleClaim_Config"
 if VehicleClaim.DatabaseFactory then return VehicleClaim.DatabaseFactory end
 
-local Export = require "server/VehicleClaim_DatabaseExport"
+local Export = require "VehicleClaim_DatabaseExport"
 local Factory = { state = "waiting" }
 VehicleClaim.DatabaseFactory = Factory
 local backend, cache, repositories
@@ -27,9 +27,9 @@ local function banner(mode)
     log("============================================================")
     log("VEHICLE DATABASE EXPORT " .. mode)
     log("Claim authority uses native VehicleClaimRegistry GlobalModData.")
-    log("PostgreSQL support https://plataforma.apocalipse.cloud/")
+    log("PostgreSQL supported only in https://plataforma.apocalipse.cloud/")
     log("Documentation .docs/features/database-export.md")
-    log("Server patches https://github.com/rbm4/apocalipsebr-zomboid-patches.git")
+    log("Apocalipsebr Server patches https://github.com/rbm4/apocalipsebr-zomboid-patches.git")
     log("============================================================")
 end
 
@@ -74,7 +74,7 @@ end
 function Factory.start()
     if Factory.state ~= "waiting" then return end
     if not getActivatedMods():contains("APOCALISEBR_PACK") then
-        backend = require "server/VehicleClaim_DatabaseNative"
+        backend = require "VehicleClaim_DatabaseNative"
         banner("NATIVE FILE EXPORT SELECTED")
         startCache()
         return
@@ -88,7 +88,12 @@ function Factory.start()
     local entities = ApocBREntities
     if not entities or not entities.define or not entities.document or not entities.encode
         or not entities.decode or not entities.newMutationId then block("OUTDATED ENTITY FACADE"); return end
-    local PostgreSQL = require "server/VehicleClaim_DatabasePostgreSQL"
+    local PostgreSQL = require "VehicleClaim_DatabasePostgreSQL"
+    if type(PostgreSQL) ~= "table" or type(PostgreSQL.schemas) ~= "function"
+        or type(PostgreSQL.new) ~= "function" then
+        block("POSTGRESQL EXPORT MODULE UNAVAILABLE")
+        return
+    end
     repositories = PostgreSQL.schemas(entities)
     backend = PostgreSQL.new(entities, log)
     Factory.state = "validating"

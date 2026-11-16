@@ -15,6 +15,13 @@ notify `refreshCarDatabase` when registry position metadata changes through
 last-seen updates. Successful claim creation now captures its first inventory
 snapshot through the previously commented-out export call.
 
+Persistence modules use basename imports such as
+`require "VehicleClaim_DatabasePostgreSQL"`. The game registers
+`media/lua/shared/` and `media/lua/server/` as search roots. Prefixing a basename
+with `server/` or `shared/` searches for a nonexistent nested directory and
+returns nil. The factory reports a blocked export if the PostgreSQL module fails
+to provide its expected interface.
+
 ## Cache and persistence policy
 
 `VehicleClaim_DatabaseExport.lua` owns the shared cache, reconstruction, dirty
@@ -158,6 +165,14 @@ Maven wrapper used `-Dmaven.resources.skip=true` to omit unrelated map resource
 copying. The production Kahlua fixture passed 1,650 export checks, including
 admin clear across 1,200 vehicles. The existing access-sync fixture also passed.
 Database validation was isolated from deployed servers.
+
+The subsequent startup import fix passed 1,730 Kahlua checks and the access-sync
+fixture. The test loader now resolves the actual server/shared search roots,
+rejects the previously accepted incorrect prefixes, caches module returns by
+resolved filename, and exercises automatic loading before startup as well as
+require-first loading. The initial fixture accepted incorrect imports, leaving
+that startup failure uncovered. Deployment of the corrected scripts requires a
+server restart so its Lua module cache is rebuilt.
 
 The earlier [investigation](../reports/2026-11-16-postgresql-claim-persistence-investigation.md)
 records the original architecture and alternatives.

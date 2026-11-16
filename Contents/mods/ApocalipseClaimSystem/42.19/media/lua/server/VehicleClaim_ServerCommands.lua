@@ -3,8 +3,8 @@
     Server-side authoritative command processing
     Validates all requests, enforces ownership, manages modData
 ]] 
-require "shared/VehicleClaim_Shared"
-require "server/VehicleClaim_DatabaseFactory"
+require "VehicleClaim_Shared"
+require "VehicleClaim_DatabaseFactory"
 
 local VehicleClaimServer = {}
 

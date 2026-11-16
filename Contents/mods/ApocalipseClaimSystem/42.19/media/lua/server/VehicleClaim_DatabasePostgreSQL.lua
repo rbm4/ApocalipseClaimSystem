@@ -1,7 +1,7 @@
 -- Scoped keyed mutations are projected into the V58 index and item tables.
 -- Each save/delete is one atomic transaction with stable replay after a lost ACK.
-local Export = require "server/VehicleClaim_DatabaseExport"
-local Native = require "server/VehicleClaim_DatabaseNative"
+local Export = require "VehicleClaim_DatabaseExport"
+local Native = require "VehicleClaim_DatabaseNative"
 local PostgreSQL = { name = "postgresql" }
 local DOCUMENT = "VehicleClaim.Export.v1"
 

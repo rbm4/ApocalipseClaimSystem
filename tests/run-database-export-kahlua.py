@@ -35,12 +35,12 @@ public class DebugLogStream extends java.io.PrintStream {public DebugLogStream()
 
 root = Path(__file__).resolve().parents[1]
 server = root / 'Contents/mods/ApocalipseClaimSystem/42.19/media/lua'
-sources = {'server/' + path.stem: path for path in (server / 'server').glob('VehicleClaim_Database*.lua')}
-sources['server/VehicleClaim_ServerDatabase'] = server / 'server/VehicleClaim_ServerDatabase.lua'
+sources = {'media/lua/server/' + path.name: path for path in (server / 'server').glob('VehicleClaim_Database*.lua')}
+sources['media/lua/server/VehicleClaim_ServerDatabase.lua'] = server / 'server/VehicleClaim_ServerDatabase.lua'
 for name in ('VehicleClaim_Shared', 'VehicleClaim_Config'):
-    sources['shared/' + name] = server / 'shared' / (name + '.lua')
-sources['ApocBR/Entities'] = args.pack_server / 'ApocBR/Entities.lua'
-cases = '\n'.join('case ' + json.dumps(name) + ': source=' + json.dumps(path.read_text(encoding='utf-8')) + '; break;'
+    sources['media/lua/shared/' + name + '.lua'] = server / 'shared' / (name + '.lua')
+sources['media/lua/server/ApocBR/Entities.lua'] = args.pack_server / 'ApocBR/Entities.lua'
+cases = '\n'.join('case ' + json.dumps(name) + ': return ' + json.dumps(path.read_text(encoding='utf-8')) + ';'
                   for name, path in sources.items())
 test = json.dumps((root / 'tests/database-export.lua').read_text(encoding='utf-8'))
 fixture.HARNESS = r'''
@@ -50,11 +50,26 @@ import se.krka.kahlua.vm.*;
 import se.krka.kahlua.stdlib.*;
 import se.krka.kahlua.luaj.compiler.LuaCompiler;
 public class ApiBridgeTest {
+ static String source(String path) {
+  switch(path){
+''' + cases + r'''
+   default: return null;
+  }
+ }
  static Object load(String source)throws Exception {
   LuaClosure closure=LuaCompiler.loadstring(source,"vehicle-export-fixture",LuaManager.env);
   Object[] result=LuaManager.caller.pcall(LuaManager.thread,closure,new Object[]{});
   if(!Boolean.TRUE.equals(result[0]))throw new AssertionError(java.util.Arrays.toString(result));
   return result.length>1?result[1]:null;
+ }
+ static Object loadFile(String path)throws Exception {
+  KahluaTable loaded=(KahluaTable)((KahluaTable)LuaManager.env.rawget("package")).rawget("loaded");
+  Object value=loaded.rawget(path);
+  if(value==null) {
+   value=load(source(path));
+   loaded.rawset(path,value==null?Boolean.TRUE:value);
+  }
+  return Boolean.TRUE.equals(value)?null:value;
  }
  public static void main(String[] args)throws Exception {
   BaseLib.register(LuaManager.env);StringLib.register(LuaManager.platform,LuaManager.env);
@@ -63,17 +78,24 @@ public class ApiBridgeTest {
   LuaManager.env.rawset("print",(JavaFunction)(frame,count)->{if(count>0)System.out.println(frame.get(0));return 0;});
   load(java.nio.file.Files.readString(java.nio.file.Path.of("Z:/SteamLibrary/steamapps/common/ProjectZomboid/stdlib.lua")));
   load("package={loaded={}};");
+  LuaManager.env.rawset("fixtureLoadFile",(JavaFunction)(frame,count)->{
+   try {frame.push(loadFile((String)frame.get(0)));return 1;}
+   catch(Exception error){throw new RuntimeException(error);}
+  });
   LuaManager.env.rawset("require",(JavaFunction)(frame,count)->{
    try {
     String name=(String)frame.get(0);
-    KahluaTable loaded=(KahluaTable)((KahluaTable)LuaManager.env.rawget("package")).rawget("loaded");
-    Object value=loaded.rawget(name);
-    if(value==null){String source;switch(name){
-''' + cases + r'''
-     default: throw new IllegalArgumentException(name);
-    } value=load(source);loaded.rawset(name,value==null?Boolean.TRUE:value);}
-    frame.push(value);return 1;
-   }catch(Exception e){throw new RuntimeException(e);}
+    String filename=name.endsWith(".lua")?name:name+".lua";
+    // LuaManager.require appends to the registered server/shared search roots.
+    // Its cache is keyed by resolved filename, including auto-loaded scripts.
+    for(String root:new String[]{"media/lua/shared/","media/lua/server/"}) {
+     String path=root+filename;
+     if(source(path)!=null){frame.push(loadFile(path));return 1;}
+    }
+    KahluaTable warnings=(KahluaTable)LuaManager.env.rawget("requireWarnings");
+    warnings.rawset((double)(warnings.len()+1),name);
+    frame.push((Object)null);return 1;
+   }catch(Exception error){throw new RuntimeException(error);}
   });
   load(''' + test + r''');
  }

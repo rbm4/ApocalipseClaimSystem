@@ -1,6 +1,6 @@
 -- Native export backend and legacy snapshot reader. No event handlers are installed here.
-require "shared/VehicleClaim_Shared"
-require "shared/VehicleClaim_Config"
+require "VehicleClaim_Shared"
+require "VehicleClaim_Config"
 
 local Native = { name = "native" }
 

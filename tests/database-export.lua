@@ -24,11 +24,10 @@ local function hasLog(text)
     for _, line in ipairs(logs) do if string.find(line, text, 1, true) then return true end end
     return false
 end
-local function reset(pack, claims, existing, existingFiles, missingBridge)
+local function reset(pack, claims, existing, existingFiles, missingBridge, autoload)
     VehicleClaim, ApocBREntities = nil, nil
-    for name in pairs(package.loaded) do
-        if string.find(name, "VehicleClaim", 1, true) or name == "ApocBR/Entities" then package.loaded[name] = nil end
-    end
+    requireWarnings = {}
+    package.loaded = {}
     hooks, logs, requests, responses, payloads, definitions = {}, {}, {}, {}, {}, {}
     files, registry, document = copy(existingFiles or {}), { claims = claims or {} }, copy(existing)
     revision, lastToken, lastBody, encodes, writes, scans, busy = existing and 1 or 0, nil, nil, 0, 0, 0, false
@@ -77,8 +76,26 @@ local function reset(pack, claims, existing, existingFiles, missingBridge)
         poll = function() local result = responses; responses = {}; return result end
     }
     if missingBridge then ApocBRModEntities = nil end
-    local factory = require "server/VehicleClaim_DatabaseFactory"
+    local factory
+    if autoload ~= false then
+        -- Game LoadDirBase loads shared files and then server files by filename,
+        -- caching their returns by resolved path before OnServerStarted fires.
+        fixtureLoadFile("media/lua/shared/VehicleClaim_Config.lua")
+        fixtureLoadFile("media/lua/shared/VehicleClaim_Shared.lua")
+        if pack then fixtureLoadFile("media/lua/server/ApocBR/Entities.lua") end
+        for _, name in ipairs({ "VehicleClaim_DatabaseExport", "VehicleClaim_DatabaseFactory",
+            "VehicleClaim_DatabaseNative", "VehicleClaim_DatabasePostgreSQL", "VehicleClaim_ServerDatabase" }) do
+            fixtureLoadFile("media/lua/server/" .. name .. ".lua")
+        end
+        factory = VehicleClaim.DatabaseFactory
+        check(require("VehicleClaim_DatabaseFactory") == factory, "require reuses auto-loaded factory")
+        check(require("VehicleClaim_ServerDatabase") == factory, "compatibility entry point reuses factory")
+        check(#hooks.start == 1, "automatic loading installs startup once")
+    else
+        factory = require "VehicleClaim_DatabaseFactory"
+    end
     for _, fn in ipairs(hooks.start) do fn() end
+    check(#requireWarnings == 0, "all production imports resolve against game Lua search roots")
     return factory
 end
 
@@ -298,5 +315,16 @@ factory = reset(true, { VH1 = claim() }, nil, {
 drain()
 check(factory.state == "ready" and not payloads[document["items:VH1"].payload].hasInventorySnapshot,
     "reclaimed native vehicle retirement marker imports as absent snapshot")
+
+check(require("server/VehicleClaim_DatabasePostgreSQL") == nil,
+    "game resolver rejects server prefix even when module was auto-loaded")
+check(require("shared/VehicleClaim_Config") == nil, "game resolver rejects shared prefix")
+check(require("VehicleClaim_DatabasePostgreSQL.lua") == require("VehicleClaim_DatabasePostgreSQL"),
+    "require extension and basename resolve to one cached module")
+factory = reset(false, { VH1 = claim() }, nil, nil, false, false)
+check(factory.state == "ready", "native startup also supports require before auto-loading")
+factory = reset(true, { VH1 = claim() }, nil, nil, false, false)
+drain()
+check(factory.state == "ready" and hasLog("POSTGRESQL EXPORT ACTIVE"), "PostgreSQL startup also supports require first")
 
 realPrint("PASS " .. checks .. " vehicle export checks in production Kahlua modules")

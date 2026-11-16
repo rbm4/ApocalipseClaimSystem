@@ -4,7 +4,7 @@
     Validates all requests, enforces ownership, manages modData
 ]] 
 require "shared/VehicleClaim_Shared"
-require "server/VehicleClaim_ServerDatabase"
+require "server/VehicleClaim_DatabaseFactory"
 
 local VehicleClaimServer = {}
 
@@ -620,6 +620,7 @@ local function updateLastSeen(vehicle)
             registryEntry.x = vehicle:getX()
             registryEntry.y = vehicle:getY()
             ModData.transmit(VehicleClaim.GLOBAL_REGISTRY_KEY)
+            VehicleClaim.refreshCarDatabase(vehicleHash)
             syncVehicleClaimFromRegistry(vehicle)
         end
     end
@@ -753,7 +754,7 @@ local function handleClaimVehicle(player, args)
         end
 
         -- Persist to car database
-        --VehicleClaim.updateCarDatabase(vehicle)
+        VehicleClaim.updateCarDatabase(vehicle)
 
         -- Notify client with claim data
         sendServerCommand(player, VehicleClaim.COMMAND_MODULE, VehicleClaim.RESP_CLAIM_SUCCESS, {

@@ -7,6 +7,10 @@ A secure, server-authoritative vehicle ownership system for Project Zomboid mult
 ### Build Compatibility
 The repository contains versioned mod folders for Project Zomboid 42.13.1, 42.14, 42.15, 42.17, and 42.19. Validate the specific folder against the game build before deployment; the security changes documented below currently target the `42.19` folder.
 
+The `42.19` export persistence factory selects native files or PostgreSQL through
+ApocalisebrPack. Its tables, migration, cache policy, and recovery behavior are
+documented in the [database export guide](.docs/features/database-export.md).
+
 ### Multi-Language Support
 The system supports multiple languages with automatic detection:
 - **English (EN)** - Full UI and sandbox translations
